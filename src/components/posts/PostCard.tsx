@@ -9,7 +9,7 @@ interface PostCardProps {
 
 export function PostCard({ post }: PostCardProps) {
   return (
-    <Link href={`/posts/${post.slug}`} className="group">
+    <Link href={`/posts/${post.category}/${post.title}`} className="group">
       <article className="space-y-4 rounded-lg border p-4 transition-all hover:border-gray-400">
         {post.thumbnail && (
           <div className="relative aspect-video w-full overflow-hidden rounded-lg">
