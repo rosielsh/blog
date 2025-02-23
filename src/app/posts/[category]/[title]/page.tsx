@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import { getAllPosts, getPostByFullPath } from "@/lib/mdx";
 import { MdxContent } from "@/components/posts/MdxContent";
+import { Comments } from "@/components/comments/Comments";
 
-// 정적 페이지 생성을 위한 경로 정보를 제공합니다
 export async function generateStaticParams() {
   const posts = await getAllPosts();
 
@@ -13,7 +13,6 @@ export async function generateStaticParams() {
   }));
 }
 
-// 게시물 페이지의 메타데이터를 생성합니다
 export async function generateMetadata({
   params,
 }: {
@@ -49,7 +48,7 @@ export default async function PostDetail({
 
     return (
       <article className="container mx-auto px-4 py-8">
-        {/* 게시물 헤더 섹션 */}
+        {/* 게시물 헤더 */}
         <header className="mb-8">
           {metadata.thumbnail && (
             <div className="relative mb-6 aspect-video w-full overflow-hidden rounded-lg">
@@ -78,10 +77,13 @@ export default async function PostDetail({
           </div>
         </header>
 
-        {/* MDX 컨텐츠 렌더링 */}
+        {/* 게시물 내용 */}
         <div className="mt-8">
           <MdxContent source={content} />
         </div>
+
+        {/* 댓글 */}
+        <Comments />
       </article>
     );
   } catch (error) {
