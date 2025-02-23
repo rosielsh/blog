@@ -8,7 +8,6 @@ export function Comments() {
 
   return (
     <section className="mt-10 pt-8 border-t">
-      <h2 className="mb-8 text-2xl font-bold">댓글</h2>
       <Giscus
         id="comments"
         repo="rosielsh/blog"

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "next-themes";
+import { Header } from "@/components/layout/Header";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -15,13 +17,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
-      <body className={inter.className}>
-        <div className="min-h-screen flex flex-col">
-          {/* 나중에 Navbar 컴포넌트가 여기에 들어갈 것입니다 */}
-          <main className="flex-grow">{children}</main>
-          {/* 나중에 Footer 컴포넌트가 여기에 들어갈 것입니다 */}
-        </div>
+    <html lang="ko" suppressHydrationWarning>
+      <body
+        className={`${inter.className} bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-50`}
+      >
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <div className="min-h-screen flex flex-col">
+            <Header />
+            <main className="flex-grow container mx-auto px-4 py-8">
+              {children}
+            </main>
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );
