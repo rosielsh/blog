@@ -19,12 +19,12 @@ export default function RootLayout({
   return (
     <html lang="ko" suppressHydrationWarning>
       <body
-        className={`${inter.className} bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-50`}
+        className={`${inter.className} bg-white text-gray-900 dark:bg-black dark:text-gray-50`}
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <div className="min-h-screen flex flex-col">
             <Header />
-            <main className="flex-grow container mx-auto px-4 py-8">
+            <main className="flex-grow container mx-auto px-4 py-8 w-[90%] mx-auto sm:w-[90%] lg:w-[75%] xl:w-[60%]">
               {children}
             </main>
           </div>

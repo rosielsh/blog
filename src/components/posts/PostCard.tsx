@@ -1,5 +1,5 @@
-// PostCard.tsx
 import { PostMetadata } from "@/lib/mdx";
+import { CalendarHeart } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -10,9 +10,9 @@ interface PostCardProps {
 export function PostCard({ post }: PostCardProps) {
   return (
     <Link href={`/posts/${post.category}/${post.title}`} className="group">
-      <article className="space-y-4 rounded-lg border p-4 transition-all hover:border-gray-400">
+      <article className="space-y-4 rounded-lg border transition-all hover:border-gray-400">
         {post.thumbnail && (
-          <div className="relative aspect-video w-full overflow-hidden rounded-lg">
+          <div className="relative aspect-video w-full overflow-hidden rounded-t-lg">
             <Image
               src={post.thumbnail}
               alt={post.title}
@@ -21,12 +21,19 @@ export function PostCard({ post }: PostCardProps) {
             />
           </div>
         )}
-        <div className="space-y-2">
-          <h2 className="text-xl font-bold">{post.title}</h2>
-          <p className="text-sm text-gray-600">{post.desc}</p>
-          <time className="text-sm text-gray-500">
-            {new Date(post.date).toLocaleDateString()}
+        <div className="space-y-2 p-5">
+          <time className="text-sm flex align-center">
+            <CalendarHeart size={15} height={20} color="gray" />
+            <span className="ml-1">
+              {new Date(post.date).toLocaleDateString()}
+            </span>
           </time>
+          <div className="h-28">
+            <h2 className="text-xl font-bold my-2 text-overflow">
+              {post.title}
+            </h2>
+            <p className="text-sm text-gray-600 text-overflow">{post.desc}</p>
+          </div>
         </div>
       </article>
     </Link>

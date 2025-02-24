@@ -47,7 +47,7 @@ export default async function PostDetail({
     const { metadata, content } = await getPostByFullPath(fullPath);
 
     return (
-      <article className="container mx-auto px-4 py-8">
+      <article className="container mx-auto px-20 py-8">
         {/* 게시물 헤더 */}
         <header className="mb-8">
           {metadata.thumbnail && (
