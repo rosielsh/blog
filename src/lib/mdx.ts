@@ -44,11 +44,12 @@ export async function getAllPosts(): Promise<PostMetadata[]> {
     const relativePath = path.relative(postsDirectory, filePath);
     const category = relativePath.split(path.sep)[0];
     const title = path.basename(filePath, ".mdx");
+    const decodedTitle = decodeURIComponent(title);
     const fullPath = relativePath.replace(".mdx", "");
 
     return {
       ...data,
-      title,
+      title: decodedTitle,
       category,
       fullPath,
       date: new Date(data.date).toISOString(),
@@ -79,13 +80,14 @@ export async function getAllCategories(): Promise<string[]> {
 
 // 게시물 상세 내용
 export async function getPostByFullPath(fullPath: string) {
-  const filePath = path.join(postsDirectory, `${fullPath}.mdx`); // 전체 파일 경로 - 카테고리/제목.mdx 포함
+  const decodedPath = decodeURIComponent(fullPath);
+  const filePath = path.join(postsDirectory, `${decodedPath}.mdx`); // 전체 파일 경로 - 카테고리/제목.mdx 포함
   const fileContents = fs.readFileSync(filePath, "utf8"); // 해당 파일에 있는 컨텐츠 내용
 
   // 글 관련 정보
   const { data, content } = matter(fileContents);
-  const category = fullPath.split("/")[0];
-  const title = path.basename(fullPath);
+  const category = decodedPath.split("/")[0];
+  const title = decodeURIComponent(path.basename(decodedPath));
 
   return {
     metadata: {
