@@ -32,7 +32,9 @@ export function PostCard({ post }: PostCardProps) {
 
             <div className="text-sm flex items-center">
               <ChartColumnStacked size={15} height={20} color="gray" />
-              <span className="ml-1 text-green-100">{post.category}</span>
+              <span className="ml-1 text-gray-500 dark:text-green-200">
+                {post.category}
+              </span>
             </div>
           </div>
 
