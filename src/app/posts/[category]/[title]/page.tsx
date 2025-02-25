@@ -48,18 +48,14 @@ export default async function PostDetail({
 
   try {
     const { metadata, content } = await getPostByFullPath(fullPath);
-
-    // MDX 콘텐츠에서 헤딩을 추출하여 목차 생성
     const headings = extractHeadings(content);
     const hasTableOfContents = headings.length > 0;
 
     return (
       <div className="container mx-auto px-4 py-8 lg:px-8">
         <div className="lg:grid lg:grid-cols-12 lg:gap-8">
-          {/* 메인 콘텐츠 영역 */}
           <main className="lg:col-span-9">
             <article>
-              {/* 게시물 헤더 */}
               <header className="mb-8">
                 {metadata.thumbnail && (
                   <div className="relative mb-6 aspect-video w-full overflow-hidden rounded-lg">
@@ -105,20 +101,14 @@ export default async function PostDetail({
                   </details>
                 </div>
               )}
-
-              {/* 게시물 내용 */}
               <div className="mt-8">
                 <MdxContent source={content} />
               </div>
-
-              {/* 댓글 */}
               <div className="mt-16">
                 <Comments />
               </div>
             </article>
           </main>
-
-          {/* 사이드바 (데스크톱 전용) */}
           {hasTableOfContents && (
             <aside className="mt-8 hidden lg:sticky lg:top-20 lg:mt-0 lg:block lg:col-span-3 lg:self-start">
               <div className="rounded-lg bg-gray-50 p-6 dark:bg-black">

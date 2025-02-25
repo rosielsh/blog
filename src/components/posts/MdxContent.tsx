@@ -54,7 +54,7 @@ const components = {
   },
 
   h1: ({ children, ...props }: HeadingProps) => (
-    <h1 className="relative mb-4 mt-8 text-3xl font-bold group" {...props}>
+    <h1 className="relative mb-4 mt-8 text-2xl font-bold group" {...props}>
       <span className="absolute -left-5 hidden text-gray-400 group-hover:inline">
         #
       </span>
@@ -63,7 +63,7 @@ const components = {
   ),
 
   h2: ({ children, ...props }: HeadingProps) => (
-    <h2 className="relative mb-4 mt-8 text-2xl font-bold group" {...props}>
+    <h2 className="relative mb-4 mt-8 text-xl font-bold group" {...props}>
       <span className="absolute -left-4 hidden text-gray-400 group-hover:inline">
         #
       </span>
@@ -72,7 +72,7 @@ const components = {
   ),
 
   h3: ({ children, ...props }: HeadingProps) => (
-    <h3 className="relative mb-4 mt-6 text-xl font-bold group" {...props}>
+    <h3 className="relative mb-4 mt-6 text-lg font-bold group" {...props}>
       <span className="absolute -left-4 hidden text-gray-400 group-hover:inline">
         #
       </span>
@@ -82,7 +82,7 @@ const components = {
 
   pre: ({ children, ...props }: HTMLProps<"pre">) => (
     <pre
-      className="my-4 overflow-auto rounded-lg bg-gray-100 p-4 dark:bg-gray-800"
+      className="my-4 overflow-auto rounded-lg bg-gray-100 p-4 dark:bg-gray-800 dark:text-gray-300 dark:text-sm"
       {...props}
     >
       {children}
@@ -101,7 +101,7 @@ const components = {
 
 export function MdxContent({ source }: { source: string }) {
   return (
-    <div className="prose prose-slate max-w-none dark:prose-invert">
+    <div className="prose prose-slate prose-lg leading-loose max-w-none dark:prose-invert dark:text-gray-200">
       <MDXRemote source={source} components={components} />
     </div>
   );

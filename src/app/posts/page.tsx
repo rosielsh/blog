@@ -19,9 +19,7 @@ export default async function PostListPage({
 
   return (
     <main className="container mx-auto px-4 py-8">
-      <h1 className="mb-4 font-semibold text-3xl underline decoration-green-200 underline-offset-4">
-        Posts
-      </h1>
+      <h1 className="mb-4 font-semibold text-3xl underline-offset-4">Posts</h1>
       <div className="mb-8">
         <Suspense fallback={<div>카테고리 로딩 중...</div>}>
           <CategoryFilter
