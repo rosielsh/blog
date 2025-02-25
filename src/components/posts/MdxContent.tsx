@@ -82,7 +82,7 @@ const components = {
 
   pre: ({ children, ...props }: HTMLProps<"pre">) => (
     <pre
-      className="my-4 overflow-auto rounded-lg bg-gray-100 p-4 dark:bg-gray-800 dark:text-gray-300 dark:text-sm"
+      className="my-4 overflow-auto rounded-lg bg-gray-100 p-4 text-gray-600 text-sm dark:bg-gray-800 dark:text-gray-300"
       {...props}
     >
       {children}
