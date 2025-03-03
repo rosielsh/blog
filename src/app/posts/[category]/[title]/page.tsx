@@ -6,6 +6,7 @@ import { Comments } from "@/components/comments/Comments";
 import { TableOfContents } from "@/components/posts/TableOfContents";
 import { extractHeadings } from "@/lib/toc";
 import { CalendarDays, Folder } from "lucide-react";
+import { ScrollButton } from "@/components/posts/ScrollButton";
 
 export async function generateStaticParams() {
   const posts = await getAllPosts();
@@ -71,10 +72,12 @@ export default async function PostDetail({
 
                 <h1 className="text-4xl font-bold">{metadata.title}</h1>
                 <p className="mt-2 text-gray-600">{metadata.desc}</p>
-                <div className="mt-4 flex flex-wrap gap-4 text-sm text-gray-500 justify-center">
+                <div className="mt-4 flex flex-col flex-wrap gap-2 text-sm text-gray-500 justify-center items-center">
                   <div className="flex items-center">
                     <Folder size={16} className="mr-1" />
-                    <span>{metadata.category}</span>
+                    <span className="text-teal-600 dark:text-teal-700">
+                      {metadata.category}
+                    </span>
                   </div>
                   <div className="flex items-center">
                     <CalendarDays size={16} className="mr-1" />
@@ -118,6 +121,7 @@ export default async function PostDetail({
             </aside>
           )}
         </div>
+        <ScrollButton />
       </div>
     );
   } catch (error) {
