@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { ArrowUp, ArrowDown } from "lucide-react";
 
 export function ScrollButton() {
-  const [showButton, setShowButton] = useState(false);
+  const [showButton, setShowButton] = useState<boolean>(false);
 
   useEffect(() => {
     const handleScroll = () => {

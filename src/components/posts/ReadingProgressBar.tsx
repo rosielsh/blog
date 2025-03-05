@@ -3,22 +3,23 @@
 import { useState, useEffect } from "react";
 
 export function ReadingProgressBar() {
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState<number>(0);
+
+  const calculateProgress = () => {
+    const totalHeight =
+      document.documentElement.scrollHeight - window.innerHeight;
+    const currentScroll = window.scrollY;
+
+    if (totalHeight > 0) {
+      setProgress((currentScroll / totalHeight) * 100);
+    } else {
+      setProgress(100);
+    }
+  };
 
   useEffect(() => {
-    const calculateProgress = () => {
-      const totalHeight =
-        document.documentElement.scrollHeight - window.innerHeight;
-      const currentScroll = window.scrollY;
-
-      if (totalHeight > 0) {
-        setProgress((currentScroll / totalHeight) * 100);
-      } else {
-        setProgress(100);
-      }
-    };
-
     calculateProgress();
+
     window.addEventListener("scroll", calculateProgress);
     window.addEventListener("resize", calculateProgress);
 

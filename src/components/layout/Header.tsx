@@ -49,7 +49,7 @@ export function Header() {
               </li>
               <li>
                 <Link
-                  href="/posts"
+                  href="/snippets"
                   className="px-2 py-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 hover:font-semibold
           dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-800 transition-colors duration-200"
                 >
