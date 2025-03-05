@@ -13,7 +13,7 @@ export function CategoryFilter({
 }: CategoryFilterProps) {
   const formatCategoryName = (category: string) => {
     if (category === "all") return "전체";
-    return category.charAt(0).toUpperCase() + category.slice(1);
+    return category.charAt(0) + category.slice(1);
   };
 
   return (
