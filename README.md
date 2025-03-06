@@ -30,6 +30,7 @@
 
 ### 폴더 별 역할
 
+```
 📁 src
 ㄴ 📁 app
 ㄴ 📁 components - 컴포넌트
@@ -37,3 +38,4 @@
 ㄴ 📁 layout - 레이아웃에 필요한 폴더
 ㄴ 📁 lib - util성 함수들
 ㄴ 📁 posts - 게시글 mdx 파일
+```
