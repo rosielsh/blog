@@ -44,13 +44,13 @@ export default async function SnippetDetailPage({
         <div className="max-w-4xl mx-auto">
           <Link
             href={`/snippets/${category}`}
-            className="inline-flex items-center text-teal-500 hover:text-teal-600 mb-6"
+            className="inline-flex items-center text-teal-500 hover:text-teal-600"
           >
             <ArrowLeft size={16} className="mr-1" />
             <span>뒤로가기</span>
           </Link>
 
-          <article className="bg-white dark:bg-white/10 rounded-lg shadow-md p-10 mb-8">
+          <article className="bg-white dark:bg-white/10 rounded-lg p-10 mb-8">
             <header className="mb-8">
               <h1 className="text-2xl font-bold mb-2">{snippet.title}</h1>
               <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">

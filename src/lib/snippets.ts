@@ -4,10 +4,9 @@ import matter from "gray-matter";
 import { compileMDX } from "next-mdx-remote/rsc";
 import rehypePrism from "rehype-prism-plus";
 
-// 스니펫 타입 정의
 export interface Snippet {
-  slug: string; // URL에 사용할 슬러그
-  filename: string; // 실제 파일 이름 (확장자 제외)
+  slug: string;
+  filename: string;
   category: string;
   title: string;
   description: string;
@@ -17,10 +16,8 @@ export interface Snippet {
   content: any;
 }
 
-// 스니펫 디렉토리 경로
 const snippetsDirectory = path.join(process.cwd(), "src/snippets");
 
-// 타이틀을 슬러그로 변환하는 함수
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -30,7 +27,6 @@ function slugify(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-// 모든 카테고리 가져오기
 export function getAllCategories(): string[] {
   try {
     const categories = fs.readdirSync(snippetsDirectory).filter((directory) => {
@@ -45,7 +41,6 @@ export function getAllCategories(): string[] {
   }
 }
 
-// 모든 스니펫 가져오기
 export async function getAllSnippets(): Promise<Snippet[]> {
   const categories = getAllCategories().filter((cat) => cat !== "all");
 
@@ -68,13 +63,8 @@ export async function getAllSnippets(): Promise<Snippet[]> {
           const filePath = path.join(categoryPath, file);
           const fileContents = fs.readFileSync(filePath, "utf8");
 
-          // frontMatter 파싱
           const { data: frontMatter } = matter(fileContents);
-
-          // 제목에서 슬러그 생성
           const slug = slugify(frontMatter.title || filename);
-
-          // MDX 컴파일
           const { content } = await getSnippetData(category, filename);
 
           snippets.push({
@@ -100,13 +90,11 @@ export async function getAllSnippets(): Promise<Snippet[]> {
     }
   }
 
-  // 날짜 내림차순으로 정렬
   return snippets.sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 }
 
-// 특정 카테고리의 모든 스니펫 가져오기
 export async function getSnippetsByCategory(
   category: string
 ): Promise<Snippet[]> {
@@ -130,14 +118,8 @@ export async function getSnippetsByCategory(
         const filename = file.replace(/\.mdx$/, "");
         const filePath = path.join(categoryPath, file);
         const fileContents = fs.readFileSync(filePath, "utf8");
-
-        // frontMatter 파싱
         const { data: frontMatter } = matter(fileContents);
-
-        // 제목에서 슬러그 생성
         const slug = slugify(frontMatter.title || filename);
-
-        // MDX 컴파일
         const { content } = await getSnippetData(category, filename);
 
         snippets.push({
@@ -162,13 +144,11 @@ export async function getSnippetsByCategory(
     );
   }
 
-  // 날짜 내림차순으로 정렬
   return snippets.sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 }
 
-// 특정 스니펫 데이터 가져오기
 export async function getSnippetData(category: string, filename: string) {
   const filePath = path.join(snippetsDirectory, category, `${filename}.mdx`);
 
@@ -177,11 +157,8 @@ export async function getSnippetData(category: string, filename: string) {
   }
 
   const fileContents = fs.readFileSync(filePath, "utf8");
-
-  // frontMatter와 콘텐츠 분리
   const { data: frontMatter, content: markdownContent } = matter(fileContents);
 
-  // MDX 컴파일
   const { content } = await compileMDX({
     source: markdownContent,
     options: {
@@ -202,19 +179,16 @@ export async function getSnippetData(category: string, filename: string) {
   };
 }
 
-// 특정 카테고리와 슬러그로 스니펫 가져오기
 export async function getSnippetBySlug(
   category: string,
   slug: string
 ): Promise<Snippet | null> {
   try {
-    // 모든 스니펫 가져오기
     const allSnippets =
       category === "all"
         ? await getAllSnippets()
         : await getSnippetsByCategory(category);
 
-    // 슬러그가 일치하는 스니펫 찾기
     const snippet = allSnippets.find((s) => s.slug === slug);
 
     if (!snippet) {
@@ -234,19 +208,14 @@ export async function getSnippetBySlug(
   }
 }
 
-// 특정 카테고리와 타이틀로 스니펫 가져오기 (이전 방식 - 하위 호환성)
 export async function getSnippet(
   category: string,
   title: string
 ): Promise<Snippet | null> {
   try {
-    console.log(`스니펫 검색: 카테고리=${category}, 타이틀=${title}`);
-
-    // title이 이미 슬러그 형태인지 확인
     const isSlug = title === slugify(title);
 
     if (isSlug) {
-      // 이미 슬러그 형태라면 슬러그로 검색
       return getSnippetBySlug(category, title);
     }
 
