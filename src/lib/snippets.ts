@@ -3,6 +3,22 @@ import path from "path";
 import matter from "gray-matter";
 import { compileMDX } from "next-mdx-remote/rsc";
 import rehypePrism from "rehype-prism-plus";
+import { ReactElement } from "react";
+
+export type MDXContent = ReactElement;
+
+export interface SnippetFrontMatter {
+  title: string;
+  description: string;
+  language: string;
+  code: string;
+  date: string;
+}
+
+export interface SnippetDataResult {
+  frontMatter: SnippetFrontMatter;
+  content: MDXContent;
+}
 
 export interface Snippet {
   slug: string;
@@ -13,7 +29,7 @@ export interface Snippet {
   language: string;
   code: string;
   date: string;
-  content: any;
+  content: MDXContent;
 }
 
 const snippetsDirectory = path.join(process.cwd(), "src/snippets");
@@ -63,20 +79,23 @@ export async function getAllSnippets(): Promise<Snippet[]> {
           const filePath = path.join(categoryPath, file);
           const fileContents = fs.readFileSync(filePath, "utf8");
 
+          // Here we need to type the frontMatter
           const { data: frontMatter } = matter(fileContents);
-          const slug = slugify(frontMatter.title || filename);
+          const typedFrontMatter = frontMatter as SnippetFrontMatter;
+
+          const slug = slugify(typedFrontMatter.title || filename);
           const { content } = await getSnippetData(category, filename);
 
           snippets.push({
             slug,
             filename,
             category,
-            title: frontMatter.title,
-            description: frontMatter.description,
-            language: frontMatter.language,
-            code: frontMatter.code,
-            date: frontMatter.date
-              ? new Date(frontMatter.date).toISOString()
+            title: typedFrontMatter.title,
+            description: typedFrontMatter.description,
+            language: typedFrontMatter.language,
+            code: typedFrontMatter.code,
+            date: typedFrontMatter.date
+              ? new Date(typedFrontMatter.date).toISOString()
               : new Date().toISOString(),
             content,
           });
@@ -118,20 +137,24 @@ export async function getSnippetsByCategory(
         const filename = file.replace(/\.mdx$/, "");
         const filePath = path.join(categoryPath, file);
         const fileContents = fs.readFileSync(filePath, "utf8");
+
+        // Type the frontMatter consistently
         const { data: frontMatter } = matter(fileContents);
-        const slug = slugify(frontMatter.title || filename);
+        const typedFrontMatter = frontMatter as SnippetFrontMatter;
+
+        const slug = slugify(typedFrontMatter.title || filename);
         const { content } = await getSnippetData(category, filename);
 
         snippets.push({
           slug,
           filename,
           category,
-          title: frontMatter.title,
-          description: frontMatter.description,
-          language: frontMatter.language,
-          code: frontMatter.code,
-          date: frontMatter.date
-            ? new Date(frontMatter.date).toISOString()
+          title: typedFrontMatter.title,
+          description: typedFrontMatter.description,
+          language: typedFrontMatter.language,
+          code: typedFrontMatter.code,
+          date: typedFrontMatter.date
+            ? new Date(typedFrontMatter.date).toISOString()
             : new Date().toISOString(),
           content,
         });
@@ -149,7 +172,11 @@ export async function getSnippetsByCategory(
   );
 }
 
-export async function getSnippetData(category: string, filename: string) {
+// The critical fix: add proper return type to getSnippetData
+export async function getSnippetData(
+  category: string,
+  filename: string
+): Promise<SnippetDataResult> {
   const filePath = path.join(snippetsDirectory, category, `${filename}.mdx`);
 
   if (!fs.existsSync(filePath)) {
@@ -168,13 +195,14 @@ export async function getSnippetData(category: string, filename: string) {
     },
   });
 
+  // Ensure the returned object matches the SnippetDataResult interface
   return {
     frontMatter: {
       ...frontMatter,
       date: frontMatter.date
         ? new Date(frontMatter.date).toISOString()
         : new Date().toISOString(),
-    },
+    } as SnippetFrontMatter, // Type assertion to ensure TypeScript knows this matches our interface
     content,
   };
 }
@@ -221,7 +249,10 @@ export async function getSnippet(
 
     // 파일 이름을 그대로 사용해 시도
     try {
-      const { frontMatter, content } = await getSnippetData(category, title);
+      const { frontMatter, content }: SnippetDataResult = await getSnippetData(
+        category,
+        title
+      );
 
       return {
         slug: slugify(frontMatter.title || title),
@@ -234,8 +265,9 @@ export async function getSnippet(
         date: frontMatter.date,
         content,
       };
-    } catch (directError) {
+    } catch (e) {
       console.log(
+        e,
         `직접 파일 접근 실패, 슬러그화된 타이틀로 시도합니다: ${slugify(title)}`
       );
 
