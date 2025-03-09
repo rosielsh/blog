@@ -3,6 +3,9 @@ import path from "path";
 import matter from "gray-matter";
 import { compileMDX } from "next-mdx-remote/rsc";
 import rehypePrism from "rehype-prism-plus";
+import React, { ReactElement } from "react";
+
+type MDXContent = ReactElement | React.JSX.Element;
 
 export interface Snippet {
   slug: string;
@@ -13,7 +16,20 @@ export interface Snippet {
   language: string;
   code: string;
   date: string;
-  content: any;
+  content: MDXContent;
+}
+
+interface SnippetFrontMatter {
+  title: string;
+  description: string;
+  language: string;
+  code: string;
+  date?: string;
+}
+
+interface SnippetDataResult {
+  frontMatter: SnippetFrontMatter & { date: string };
+  content: MDXContent;
 }
 
 const snippetsDirectory = path.join(process.cwd(), "src/snippets");
@@ -138,10 +154,7 @@ export async function getSnippetsByCategory(
       }
     }
   } catch (error) {
-    console.error(
-      `${category} 카테고리의 스니펫을 가져오는 중 오류 발생:`,
-      error
-    );
+    console.error(error);
   }
 
   return snippets.sort(
@@ -149,7 +162,10 @@ export async function getSnippetsByCategory(
   );
 }
 
-export async function getSnippetData(category: string, filename: string) {
+export async function getSnippetData(
+  category: string,
+  filename: string
+): Promise<SnippetDataResult> {
   const filePath = path.join(snippetsDirectory, category, `${filename}.mdx`);
 
   if (!fs.existsSync(filePath)) {
@@ -158,6 +174,7 @@ export async function getSnippetData(category: string, filename: string) {
 
   const fileContents = fs.readFileSync(filePath, "utf8");
   const { data: frontMatter, content: markdownContent } = matter(fileContents);
+  const frontMatterData = frontMatter as SnippetFrontMatter;
 
   const { content } = await compileMDX({
     source: markdownContent,
@@ -170,7 +187,7 @@ export async function getSnippetData(category: string, filename: string) {
 
   return {
     frontMatter: {
-      ...frontMatter,
+      ...frontMatterData,
       date: frontMatter.date
         ? new Date(frontMatter.date).toISOString()
         : new Date().toISOString(),
@@ -200,10 +217,7 @@ export async function getSnippetBySlug(
 
     return snippet;
   } catch (error) {
-    console.error(
-      `스니펫을 가져오는 중 오류 발생 (${category}/${slug}):`,
-      error
-    );
+    console.error(error);
     return null;
   }
 }
@@ -219,7 +233,6 @@ export async function getSnippet(
       return getSnippetBySlug(category, title);
     }
 
-    // 파일 이름을 그대로 사용해 시도
     try {
       const { frontMatter, content } = await getSnippetData(category, title);
 
@@ -234,15 +247,10 @@ export async function getSnippet(
         date: frontMatter.date,
         content,
       };
-    } catch (directError) {
-      console.log(
-        `직접 파일 접근 실패, 슬러그화된 타이틀로 시도합니다: ${slugify(title)}`
-      );
+    } catch (error) {
+      console.log(error);
 
-      // 타이틀을 슬러그화하여 시도
       const slugifiedTitle = slugify(title);
-
-      // 모든 스니펫 중에서 슬러그나 제목이 일치하는 것을 찾기
       const allSnippets =
         category === "all"
           ? await getAllSnippets()
@@ -253,19 +261,14 @@ export async function getSnippet(
       );
 
       if (!snippet) {
-        console.error(
-          `일치하는 스니펫을 찾을 수 없습니다: ${category}/${title}`
-        );
+        console.error("error");
         return null;
       }
 
       return snippet;
     }
   } catch (error) {
-    console.error(
-      `스니펫을 가져오는 중 오류 발생 (${category}/${title}):`,
-      error
-    );
+    console.error(error);
     return null;
   }
 }
