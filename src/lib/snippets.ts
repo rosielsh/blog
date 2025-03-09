@@ -52,7 +52,7 @@ export function getAllCategories(): string[] {
 
     return ["all", ...categories];
   } catch (error) {
-    console.error("카테고리 목록을 가져오는 중 오류 발생:", error);
+    console.log(error);
     return ["all"];
   }
 }
