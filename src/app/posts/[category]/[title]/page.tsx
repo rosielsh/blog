@@ -21,9 +21,9 @@ export async function generateStaticParams() {
 export async function generateMetadata({
   params,
 }: {
-  params: { category: string; title: string };
+  params: Promise<{ category: string; title: string }>;
 }) {
-  const resolvedParams = await Promise.resolve(params);
+  const resolvedParams = await params;
   const fullPath = `${resolvedParams.category}/${resolvedParams.title}`;
 
   try {
@@ -43,9 +43,9 @@ export async function generateMetadata({
 export default async function PostDetail({
   params,
 }: {
-  params: { category: string; title: string };
+  params: Promise<{ category: string; title: string }>;
 }) {
-  const resolvedParams = await Promise.resolve(params);
+  const resolvedParams = await params;
   const fullPath = `${resolvedParams.category}/${resolvedParams.title}`;
 
   try {

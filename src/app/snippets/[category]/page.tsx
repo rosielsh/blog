@@ -4,9 +4,9 @@ import { SnippetList } from "@/components/snippets/SnippetList";
 import { getAllCategories, getSnippetsByCategory } from "@/lib/snippets";
 
 interface CategoryPageProps {
-  params: {
+  params: Promise<{
     category: string;
-  };
+  }>;
 }
 
 export async function generateStaticParams() {

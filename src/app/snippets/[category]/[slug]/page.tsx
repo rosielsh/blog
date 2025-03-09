@@ -7,10 +7,10 @@ import { ReadingProgressBar } from "@/components/posts/ReadingProgressBar";
 import { ScrollButton } from "@/components/posts/ScrollButton";
 
 interface SnippetDetailPageProps {
-  params: {
+  params: Promise<{
     category: string;
     slug: string;
-  };
+  }>;
 }
 
 export async function generateStaticParams() {

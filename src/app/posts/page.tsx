@@ -6,12 +6,13 @@ import { Suspense } from "react";
 export default async function PostListPage({
   searchParams,
 }: {
-  searchParams: { category?: string };
+  searchParams: Promise<{ category?: string }>;
 }) {
   const allPosts = await getAllPosts();
   const categories = await getAllCategories();
 
-  const selectedCategory = searchParams.category;
+  const resolvedParams = await searchParams;
+  const selectedCategory = resolvedParams.category;
 
   const filteredPosts = selectedCategory
     ? allPosts.filter((post) => post.category === selectedCategory)
