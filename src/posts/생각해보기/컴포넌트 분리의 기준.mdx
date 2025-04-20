@@ -1,0 +1,288 @@
+---
+title: "[생각해보기] 컴포넌트 분리의 기준"
+date: 2025-04-20
+desc: 페이먼츠 미션을 수행하며 컴포넌트는 어디까지 분리해야 하는가?에 대한 질문의 답을 찾는 과정을 작성한 글입니다.
+thumbnail: /posts/생각해보기/컴포넌트 분리의 기준/1.png
+---
+
+참고 : 정답이 적혀진 글이 아닌 개인적인 판단으로 작성된 글이며, 개인적으로 기록해두기 위해 작성한 글입니다.
+
+## 들어가며
+
+‘페이먼츠’ 미션에서 리액트를 사용하면서, 리액트의 **가장 기본적인 단위**인 컴포넌트에 대해서 접하게 되었다.
+
+특히 이번 미션에서 React로 개발을 하다 보니 "이 컴포넌트를 어디까지 분리해야 할까?"라는 고민을 하는 경우가 많았다. 즉, 작은 컴포넌트로 세밀하게 분리해야 할지, 아니면 더 큰 단위로 유지하는 것이 좋을지 판단하기 어려울 때가 많았다.
+
+컴포넌트는 적절하게 분리하면 재사용성, 가독성, 유지보수성이 향상되지만, 과도하게 분리하면 컴포넌트 간의 관계가 복잡해지고, 오히려 코드를 이해하기 어려워질 수 있다고 생각한다. 컴포넌트를 나누는 데에는 정답이 없다지만, 이번 미션을 하면서 만난 다양한 경우에 대해 나만의 기준을 가지게 되는 과정을 정리해보고자 한다.
+
+<br />
+
+## 컴포넌트란?
+
+우선 컴포넌트를 정의해보자.
+
+컴포넌트는 재사용 가능한 독립적인 단위라고 정의할 수 있다.
+
+<img src="/posts/생각해보기/컴포넌트 분리의 기준/1.png" />
+
+그리고 리액트로 컴포넌트를 쪼개서 개발한다는 것은 레고를 이용해 서비스를 조립하는 과정과 비슷하다고 볼 수 있다.
+
+<br />
+
+## 분리를 하는 기준이 있을까?
+
+이렇게 리액트에서 강조하는 컴포넌트를 분리하는 몇 가지 기준이 있다.
+
+내가 프로젝트에 적용한 2가지 정도의 기준에 대해서 말해보고자 한다.
+
+**단일 책임 원칙**
+
+소프트웨어 개발인 `SOLID` 원칙 중 하나인 단일 책임 원칙은 컴포넌트 분리에서도 적용된다.
+
+하나의 컴포넌트는 하나의 책임만 가져야 하는 것이다.
+
+예를 들어 아래는 페이먼츠 미션을 구현할 때, 현재 페이지에 있는 컴포넌트의 일부를 발췌한 것이다.
+
+나는 카드 번호 입력과 유효 기간의 입력은 별도의 책임이라고 생각했기 때문에 하나의 파일에 모두 넣지 않고, 별도의 컴포넌트인 `CardNumberInput`, `ExpirationDateInput`, `CVCInput` 3가지 섹션으로 분리해주었다.
+
+```jsx
+<StyledCardPage>
+  <CardNumberInput values={cardNumber} onChange={handleCardNumberInput} />
+  <ExpirationDateInput
+    values={expirationDate}
+    onChange={handleExpirationDateInput}
+  />
+  <CVCInput values={cvc} onChange={handleCVCInput} />
+</StyledCardPage>
+```
+
+<br />
+
+**재사용성**
+
+같은 UI 패턴이 여러 곳에서 반복되면, 이를 재사용 가능한 컴포넌트로 분리할 수 있을 것 같다.
+
+현재 페이먼츠 미션에서도 이를 적용한 부분이 있다.
+
+아래는 재사용 가능한 `Input` 컴포넌트의 예시이다.
+
+```jsx
+type InputProps = {
+  value: string,
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void,
+  onBlur: (e: React.ChangeEvent<HTMLInputElement>) => void,
+  maxLength: number,
+  placeholder: string,
+  isError: boolean,
+};
+
+const Input = ({
+  value,
+  onChange,
+  onBlur,
+  maxLength,
+  placeholder,
+  isError,
+}: InputProps) => {
+  return (
+    <StyledInput
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      maxLength={maxLength}
+      placeholder={placeholder}
+      isError={isError}
+    />
+  );
+};
+
+export default Input;
+```
+
+그 외에도 내부 상태 관리의 복잡성이 올라간다거나, 내부 구현 코드가 100줄이 넘어가는 등 유지보수하기 힘든 코드가 된다면 컴포넌트를 분리하는 기준점이 될 것이다.
+
+<br />
+
+## 어디까지 분리하는 것이 좋을까?
+
+### 1. 하나의 컴포넌트로 만들기
+
+예를 들어 모든 기능을 하나의 컴포넌트로 만든다고 가정해보자.
+
+이런 경우 모든 상태 관리, 이벤트 핸들러, 유효성 검사 등이 하나의 파일에 몰리게 된다.
+
+코드로 작성해보면 대략 이런 형태가 될 것이다.
+
+```jsx
+function CardPage() {
+  // 모든 상태 관리
+  const [cardNumber, setCardNumber] = useState(["", "", "", ""]);
+  const [expirationDate, setExpirationDate] = useState(["", ""]);
+  const [cvc, setCvc] = useState([""]);
+
+  // 모든 이벤트 핸들러
+  // 카드 타입 감지 로직
+  // 유효성 검증 로직
+
+  return (
+    <div>
+      {/* 카드 페이지 UI */}
+      ...
+    </div>
+  );
+}
+```
+
+생각만해도 유지보수하기 힘들고, 코드 이해 및 테스트하기 어려운 코드가 될 것 같다.
+
+<br />
+
+### 2. 기능별로 분리하기
+
+컴포넌트를 주요 기능별로 분리하는 것이다.
+
+예를 들어, `CardPage`는 상태 관리나 전체 레이아웃을 관리하는 역할, `PreviewCard`는 카드 시각화를 위한 컴포넌트 등 하나의 컴포넌트는 하나의 책임을 가지도록 설계하는 것이다.
+
+이렇게 되면 각각의 컴포넌트의 역할이 명확하고 재사용성을 확보할 수 있다는 장점이 있을 것 같다.
+
+<br />
+
+### 3. 과도하게 쪼개기
+
+하나의 작은 `UI`까지 모두 컴포넌트로 분리하는 것이다.
+
+예를 들어 아래와 같이 말이다.
+
+```jsx
+<CardForm>
+  <CardSection>
+    <SectionTitle>결제할 카드 번호를 입력해 주세요</SectionTitle>
+    <SectionSubtitle>본인 명의의 카드만 결제 가능합니다.</SectionSubtitle>
+    <CardNumberInputGroup>
+      <CardNumberInputField index={0} />
+      <InputDivider />
+      <CardNumberInputField index={1} />
+      {/* ... */}
+    </CardNumberInputGroup>
+  </CardSection>
+  {/* ... */}
+</CardForm>
+```
+
+하지만 이렇게 과도한 컴포넌트로 쪼개는 것은 컴포넌트 간의 관계 파악이 어렵고, `Props drilling`이 발생할 위험이 있다. 따라서 이에 대한 적절한 추상화 정도를 찾아야 한다.
+
+<br />
+
+## 이번 미션에서 가진 질문들
+
+그럼 나는 이번 미션에서 추상화 정도를 어떤 방향으로 찾아 갔을까?
+
+아래는 이번 미션에서 겪은 다양한 상황들에 대해 내린 결론들이다.
+
+<br />
+
+### 단순히 props를 전달하는 컴포넌트도 별도로 분리할 필요가 있을까?
+
+예를 들어, 나는 이번 미션에 있는 `Input` 컴포넌트를 재사용 가능하도록 별도의 컴포넌트로 만들었다.
+
+`Input` 컴포넌트의 코드는 아래와 같다.
+
+```jsx
+type InputProps = {
+  value: string,
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void,
+  onBlur: (e: React.ChangeEvent<HTMLInputElement>) => void,
+  maxLength: number,
+  placeholder: string,
+  isError: boolean,
+};
+
+const Input = ({
+  value,
+  onChange,
+  onBlur,
+  maxLength,
+  placeholder,
+  isError,
+}: InputProps) => {
+  return (
+    <StyledInput
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      maxLength={maxLength}
+      placeholder={placeholder}
+      isError={isError}
+    />
+  );
+};
+
+export default Input;
+```
+
+하지만 이렇게 분리를 한 이후 `Input` 컴포넌트를 보니 문득 이런 생각이 들었다.
+
+이 컴포넌트의 역할이 단지 `Props`를 전달해주기 위함이면, 별도로 분리할 필요가 없는건 아닐까?
+
+이 컴포넌트의 역할은 단순 래핑에 불과했기 때문에 불필요한 계층을 만드는 것일 수도 있다고 생각했기 때문이다.
+
+하지만 이렇게 분리했을 때 좋은 점은 프로젝트 전체에서 동일한 방식으로 `Input` 컴포넌트를 사용할 수 있다는 점과, 향후 확장 가능성을 생각했을 때(ex) `Input`에 유효성 검사나 라벨 추가 등)는 분리하는게 좋다는 생각이 들었다.
+
+따라서 일단은 `Input` 컴포넌트를 재사용 가능한 별도의 컴포넌트로 두는 것이 낫다는 생각이 들어서 별도로 분리해주었다.
+
+<br />
+
+### 현재 페이지에서만 한 번 사용되는 컴포넌트를 굳이 분리해줄 필요가 있을까?
+
+예를 들어 현재 페이먼츠 미션에서 `title`, `subTitle`, `input` 3개의 동일한 형태를 가진 부분을 별도의 섹션 컴포넌트로 분리해주었다. (아래의 빨간 박스에 해당하는 영역이다.)
+
+<img src="/posts/생각해보기/컴포넌트 분리의 기준/2.png" width="300px" />
+
+<br />
+
+내가 생각한 컴포넌트를 분리하는 기준은 재사용성을 중점적으로 생각했기 때문에, 이렇게 재사용되지 않는 UI임에도 불구하고, 나누는 것이 의미가 있을까?에 대해서 생각해보았다.
+
+하지만 결국 3개의 섹션에 대한 코드를 페이지 단에서 관리해주게 된다면 `CardPage` 컴포넌트에서 관심을 가져야 하는 일이 많아지기 때문에 별도로 분리하는 것이 맞다고 생각했다.
+
+따라서 현재는 `CardPage`를 부모로, 자식 컴포넌트로는 `CardNumberInput`, `CVCInput`, `ExpirationDateInput` 총 3개의 섹션으로 관리해주는 방식으로 구현한 셈이다.
+
+즉, 재사용되지는 않더라도 단일 책임 원칙에 따라 컴포넌트를 분리하는 것이 좋은 방향일 수도 있다는 생각을 할 수 있었다.
+
+<br />
+
+### 작은 기능을 담당한다면 하나의 컴포넌트로 합쳐도 되지 않을까?
+
+현재 페이지에서는 2개의 타입에 해당하는 텍스트가 있다.
+
+<img src="/posts/생각해보기/컴포넌트 분리의 기준/3.png" width="500px" />
+
+<br />
+
+각각의 텍스트는 3번 정도 재사용되기 때문에, 별도의 컴포넌트로 분리하는 것이 좋을 것 같다는 생각이 들었다. 이때 각각을 다른 컴포넌트로 구현해야 할지, 아니면 하나의 컴포넌트를 구현하되 `props`를 주어 구현해야 할지에 대한 고민을 하게 되었다.
+
+하나의 컴포넌트로 구현하게 된다면 단일 책임 원칙에 부합하지만, 두 코드는 텍스트를 보여주는 동일한 역할을 하기 때문에 스타일을 제외한 모든 부분은 동일한 코드가 될 것이다.
+
+반면 각각의 컴포넌트로 구현하게 된다면 중복 코드가 줄어들고 하나의 컴포넌트만 수정하면 된다는 장점은 있지만, 하나의 컴포넌트에서 여러가지 일을 하게 되기 때문에 내부 로직이 복잡해진다는 단점이 있을 것 같았다.
+
+고민끝에 아래와 같이 하나의 컴포넌트로 구현하게 되었다.
+
+```jsx
+<Text type="title" text={CARD_PAGE_TEXT.CARD_NUMBER_TITLE} />
+<Text type="subTitle" text={CARD_PAGE_TEXT.CARD_NUMBER_SUBTITLE} />
+```
+
+그 이유는 다음과 같다.
+
+텍스트 표시라는 간단한 작업을 수행하는 컴포넌트이기 때문에, 불필요하게 컴포넌트를 분리할 필요가 없어보였기 때문이다. 하지만 만약 `Title`이나 `SubTitle`에 텍스트 외에 추가 기능(아이콘, 툴팁 등)이 필요해진다면 분리를 고려해볼 것 같다.
+
+<br />
+
+## 마무리하며
+
+컴포넌트 분리에 대한 명확한 기준을 한 줄로 설명하기는 어려운 것 같다. 굳이 정리하자면, “이 컴포넌트의 역할을 명확하게 설명할 수 있도록”하는 것이 컴포넌트 분리의 핵심이 아닐까 생각한다.
+
+이러한 기준은 개개인마다, 프로젝트의 성격마다 다를 것이다. 중요한 것은 과도한 분리와 충분히 분리되지 않은 상태 그 사이의 **적절한 균형**을 찾아야 한다고 생각한다.
+
+결국 컴포넌트 분리는 정답보다는 상황에 맞는 선택을 찾는 과정이기 때문이다. 개발 경험이 쌓일수록 더 직관적으로 이러한 결정을 내릴 수 있게 될 것이라고 생각한다. 페이먼츠 미션을 통해 컴포넌트 분리에 대한 나만의 기준을 조금씩 확립해 나갈 수 있었다.
+
+앞으로도 다양한 경험을 통해 이러한 기준을 계속 발전시키며, 효율적이고 유지보수하기 좋은 코드로 만들어 나가고 싶다.
