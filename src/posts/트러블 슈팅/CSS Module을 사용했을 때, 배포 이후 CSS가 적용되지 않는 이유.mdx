@@ -1,0 +1,285 @@
+---
+title: "CSS Module을 사용했을 때, 배포 이후에 CSS가 적용되지 않는 이유"
+date: 2025-05-04
+desc: CSS Module으로 구현한 모달 라이브러리에 CSS가 적용되지 않는 문제가 발생했다.
+thumbnail: /posts/트러블 슈팅/CSS Module을 사용했을 때, 배포 이후에 CSS가 적용되지 않는 이유/1.png
+---
+
+## Intro
+
+페이먼츠 모듈 미션을 하면서 `CSS Module`을 사용해서 모달 컴포넌트를 라이브러리로 만들어서 배포했지만, 실제로 배포 이후 모달 라이브러리를 다운 받아서 사용할 때 `CSS`가 적용되지 않는 문제가 발생했다.
+
+하지만 `Emotion`을 사용했을 때는 `CSS`가 잘 적용되는 것을 보면서, 이 두가지 방식에 대한 차이가 궁금해졌다.
+
+오늘은 2가지 `CSS`를 적용하는 방식에 어떤 차이가 있기 때문에 이러한 문제가 발생하는 것인지에 대해서 알아보고자 한다.
+
+<br />
+
+## 문제 개요
+
+문제 상황을 간단하게 설명해보자면 아래와 같다.
+
+아래의 `cssmodulemodal`은 `CSS Module`으로 `css`를 적용한 라이브러리다.
+
+```jsx
+import { useState } from "react";
+import "./App.css";
+import { Modal } from "cssmodulemodal";
+
+function App() {
+  const [isShowModal, setIsShowModal] = useState(false);
+
+  return (
+    <div>
+      {isShowModal && (
+        <Modal
+          position="bottom"
+          title="모달"
+          onClose={() => {
+            setIsShowModal(false);
+          }}
+        >
+          <div>모달 내용</div>
+        </Modal>
+      )}
+      <button onClick={() => setIsShowModal(true)}>모달 열기</button>
+    </div>
+  );
+}
+
+export default App;
+```
+
+<br />
+
+해당 페이지에서 **모달 열기 버튼**을 클릭하면 **모달이 열리는 것이 정상적인 동작**이다.
+
+이를 실행해보면 아래와 같은 화면이 된다.
+
+<img
+  src="/posts/트러블 슈팅/CSS Module을 사용했을 때, 배포 이후에 CSS가 적용되지 않는 이유/1.png"
+  width="400px"
+/>
+
+<br />
+
+즉, 스타일링이 적용되지 않는다.
+
+참고로 스타일링이 적용된 화면은 아래와 같다.
+
+<img
+  src="/posts/트러블 슈팅/CSS Module을 사용했을 때, 배포 이후에 CSS가 적용되지 않는 이유/2.png"
+  width="400px"
+/>
+
+<br />
+
+하지만, 위 코드에서 배포된 경로의 `css` 파일을 `import`한다면 스타일링이 적용되지 않는 문제가 발생하지 않는다.
+
+```jsx
+import "cssmodulemodal/dist/index.css";
+```
+
+어떤 이유로 이런 문제가 발생하는 것일까?
+
+<br />
+
+## 원인 파악하기
+
+한 문장으로 정리하면 위 문제는 `CSS-in-JS` 라이브러리인 `Emotion`과 `CSS Modules`의 **근본적인 작동 방식이 다르기 때문**에 발생한다.
+
+우선 `CSS-in-JS`와 `CSS Modules`가 어떤 차이점이 있는지 알아보자.
+
+<br />
+
+**CSS-in-JS**
+
+```
+- `Javascript` 코드 내에서 직접 `CSS`를 작성하는 방식
+- 대표적인 예시 : `Emotion`, `styled-components` 등
+```
+
+**CSS Modules**
+
+- 일반 `CSS` 파일을 작성하되, 빌드 시 각 클래스명에 고유한 해시를 추가하여 지역 스코프를 제공하는 방식
+
+<br />
+
+### 각 방법이 작동하는 방식
+
+### 1. `Emotion` (CSS-in-JS)
+
+- `Emotion`은 `Javascript` 내에서 `CSS`를 정의하고, **런타임에 스타일을 동적으로 생성**하여 `<style>` 태그를 `DOM`에 주입한다.
+- 따라서 별도의 `CSS` 파일을 `import`할 필요가 없다.
+- 컴포넌트를 `import`하면 해당 컴포넌트에 적용된 스타일도 함께 `Javascript`의 코드로 번들링하게 된다.
+
+동작하는 방식의 예를 들면 아래와 같다.
+
+<br />
+
+```jsx
+import styled from "@emotion/styled";
+
+const Button = styled.button`
+  background-color: ${(props) => (props.primary ? "blue" : "gray")};
+  color: white;
+  padding: 10px 15px;
+`;
+
+function App() {
+  return (
+    <div>
+      <Button>일반 버튼</Button>
+      <Button primary>주요 버튼</Button>
+    </div>
+  );
+}
+```
+
+<br />
+
+위와 같은 코드가 있을 때, 이 코드가 실행되는 순서는 아래와 같다.
+
+```
+1. `Javascript` 코드 실행
+2. `Emotion`이 `Button` 컴포넌트 처리
+
+   1. 컴포넌트 스타일 정의 분석
+   2. 고유한 클래스 이름을 자동으로 생성 (ex) `css-3frnj2d`)
+```
+
+<img
+  src="/posts/트러블 슈팅/CSS Module을 사용했을 때, 배포 이후에 CSS가 적용되지 않는 이유/3.png"
+  width="400px"
+/>
+
+```
+3.  `HTML` 문서의 `<head>` 부분에 새로운 `<style>` 태그를 만들거나 기존 태그를 업데이트
+- 실제로 개발자 도구를 통해 이모션이 스타일을 주입하기 위해 생성한 스타일 태그를 볼 수 있다.
+```
+
+<img
+  src="/posts/트러블 슈팅/CSS Module을 사용했을 때, 배포 이후에 CSS가 적용되지 않는 이유/4.png"
+  width="400px"
+/>
+
+<br />
+
+### 2. `CSS Modules`
+
+- `CSS Modules`는 `CSS` 파일을 별도로 생성하고, **클래스 이름에 고유 해시를 추가**하여 스코프를 지역화한다.
+- 빌드 과정에서 별도의 `CSS` 파일로 추출되어 `Javascript`와 분리된다.
+- 따라서 컴포넌트와 `CSS` 파일을 별도로 `import` 해야한다.
+
+`css` 모듈이 처리되는 방식은 아래와 같다.
+
+```
+1. `CSS Modules` 파일을 분석
+2. 클래스 이름에 고유 해시를 추가 (예: `.button` → `.button_a1b2c3`)
+```
+
+<img
+  src="/posts/트러블 슈팅/CSS Module을 사용했을 때, 배포 이후에 CSS가 적용되지 않는 이유/5.png"
+  width="400px"
+/>
+css module로 빌드된 HTML 코드
+
+```
+3. 변환된 클래스 이름을 `JavaScript` 객체로 매핑
+4. 별도의 `CSS` 파일로 추출
+```
+
+<br />
+
+### 정리
+
+- `Emotion`은 코드가 브라우저에서 실행되는 런타임에 스타일이 처리된다. 따라서 `Javascript` 코드가 실행되면서 스타일을 동적으로 처리할 수 있다.
+- `CSS Module`은 프로젝트를 빌드하는 빌드 타임에 클래스 이름 변환이 이루어진다.
+
+<br />
+
+## 그래서 원인을 정리하자면 …
+
+결국 원인을 정리하자면 아래와 같다.
+
+<br />
+
+1. 빌드 결과물의 차이
+
+- `CSS Modules`는 `Javascript`가 번들된 결과와 별도의 `CSS` 파일이 생성되고, `Emotion`은 스타일 처리 로직이 포함된 `Javascript` 파일만 생성된다.
+
+<br />
+
+2. 스타일 적용 시점
+
+- `CSS Modules`는 브라우저가 `CSS` 파일을 로드할 때 스타일이 적용되고, `Emotion`은 `Javascript`가 실행되는 시점에 동적으로 스타일을 생성하고 주입한다.
+
+<br />
+
+3. 빌드 환경의 처리 방식
+
+- `CSS Modules`는 외부 `CSS` 파일 참조를 위해 사용자 어플리케이션의 번들러가 해당 파일을 인식하고 처리하지만, `Emotion`은 `Javascript` 코드 내에서 런타임에 처리되므로 별도의 빌드 환경을 설정할 필요가 없다.
+
+이러한 차이로 인해 `CSS Modules`로 구현된 라이브러리를 사용할 때는 별도의 `CSS` 파일을 임포트해야 하는 것이다.
+
+<br />
+
+## 해결할 수 있는 방법은?
+
+`CSS Module`을 사용한 라이브러리를 `npm`에 배포할 때 스타일이 자동으로 적용되도록 하는 방법은 여러 가지가 있다. 사실 문제에 대한 해결이라기 보다 직접 `css` 파일을 `import`하는 것이 아닌 대안들이다.
+
+### 1. 현재 방식을 유지하기
+
+일단 현재처럼 `CSS` 파일을 별도로 `import`하는 방식을 유지하는 방법이 있다.
+
+### 2. 번들러 설정 수정
+
+`rollup`이나 `webpack`에서 `CSS`를 `Javascript`로 인라인화 하는 플러그인을 사용한다.
+
+ex) `rollup-plugin-postcss`에서 `inject: true`로 설정하기
+
+### 3. 사용자 측 편의 기능을 추가하기
+
+라이브러리 사용자를 위해 간단한 `import` 방식을 제공하는 방법이다.
+
+```jsx
+// cssmodulemodal/with-styles
+import "../dist/index.css";
+export * from "..";
+```
+
+이렇게 하면 사용자는 간단하게 스타일 파일을 `import`할 수있다.
+
+```jsx
+import { Modal } from "cssmodulemodal/with-styles";
+```
+
+<br />
+
+## +a) `css module`을 적용한 웹 사이트는 `css`가 잘 적용되지 않나?
+
+생각해보면 `css module`으로 배포하는 사이트에서는 `css module`이 잘 적용되는데, 그러면 `npm`으로 배포하는 과정에서 뭔가 적용되지 않는 원인이 있는 건가?
+
+<br />
+
+이에 대해서 정리하자면,
+
+웹 사이트를 빌드할 때는 `webpack`이나 `vite` 같은 번들러가 `css module`을 처리하는 로더가 설정되어 있지만, `npm` 패키지를 빌드하는 과정에서는 `css` 파일을 처리하는 방식이 다를 수 있다고 한다.
+
+웹사이트 개발에서는 `webpack`이나 `vite` 같은 번들러가 `CSS Module`을 자동으로 처리하는 로더와 플러그인이 **단일 빌드 파이프라인 내에 설정**되어 있기 때문에 `JavaScript`와 `CSS`의 연결 관계가 유지된다.
+
+반면, `npm` 패키지로 라이브러리를 배포할 때는 **라이브러리 빌드와 사용자 애플리케이션 빌드가 완전히 분리**된 별개의 프로세스로 진행된다.
+
+<br />
+
+따라서 라이브러리 빌드 과정에서 `CSS`가 별도 파일로 추출되지만 이를 자동으로 로드하는 코드가 `JavaScript`에 포함되지 않는다.
+
+<br />
+
+## 마무리하며
+
+`CSS Module`을 사용해서 모달 컴포넌트를 라이브러리로 배포했을 때 스타일이 자동적으로 적용되지 않는 원인을 알아보며 `CSS Module`과 `Emotion`이 동작하는 방식의 차이를 알 수 있었다.
+
+아직 번들러와 로더에 대해 깊이있게 알지 못해서 문제에 대해 더 파고들지 못해서 아쉽다. 기회가 된다면 빌드 파이프라인부터 배포가 되는 과정에 대해서 깊이있게 학습해야 겠다는 생각이 들었다.
+
+이번 기회를 통해 빌드 생태계와 다양한 도구들의 상호작용에 대한 이해를 넓힐 수 있었다. 앞으로 더 효율적으로 개발하기 위해 빌드 도구와 모듈 시스템에 대한 학습을 진행해야겠다.
