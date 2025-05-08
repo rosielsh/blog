@@ -33,6 +33,20 @@ const components = {
       />
     </div>
   ),
+  ImageRow: ({ images }: { images: { src: string; alt?: string }[] }) => (
+    <div className="flex flex-wrap gap-2 my-6 overflow-x-auto">
+      {images.map((img, idx) => (
+        <div key={idx} className="relative w-44 h-44">
+          <Image
+            className="rounded-lg object-cover"
+            fill
+            src={img.src}
+            alt={img.alt || `Image ${idx + 1}`}
+          />
+        </div>
+      ))}
+    </div>
+  ),
 
   a: ({ href, children, ...props }: CustomLinkProps) => {
     const isInternalLink =
