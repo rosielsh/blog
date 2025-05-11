@@ -33,15 +33,22 @@ const components = {
       />
     </div>
   ),
-  ImageRow: ({ images }: { images: { src: string; alt?: string }[] }) => (
+  ImageRow: ({
+    images,
+  }: {
+    images: { src: string; alt?: string; width?: string; height?: string }[];
+  }) => (
     <div className="flex flex-wrap gap-2 my-6 overflow-x-auto">
       {images.map((img, idx) => (
-        <div key={idx} className="relative w-44 h-44">
+        <div key={idx} className="relative">
           <Image
-            className="rounded-lg object-cover"
-            fill
+            className="rounded-lg"
             src={img.src}
             alt={img.alt || `Image ${idx + 1}`}
+            width={0}
+            height={0}
+            sizes="100vw"
+            style={{ width: "auto", height: "auto", maxHeight: "440px" }}
           />
         </div>
       ))}
