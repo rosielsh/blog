@@ -1,0 +1,403 @@
+---
+title: "useEffect 생각해보기"
+date: 2025-05-18
+desc: useEffect와 관련된 질문과 답변을 작성한 글입니다.
+thumbnail: /posts/react/useEffect 생각해보기/thumbnail.png
+---
+
+# 들어가며
+
+장바구니 미션을 진행하며, **내가 과연 `useEffect`를 올바르게 사용하고 있는가?** 에 대한 의문이 들었다.
+
+이번 기회에 `useEffect`에 대한 다양한 질문들에 대해 답을 해보며 `useEffect`에 대해 몰랐던 지식을 정리해보고자 한다.
+
+<br />
+
+# useEffect란?
+
+<aside>
+📌 외부 시스템과 컴포넌트를 동기화하는 `React Hook`이다.
+
+</aside>
+
+<br />
+
+### useEffect의 사용 예시
+
+```jsx
+import { useState, useEffect } from "react";
+import { createConnection } from "./chat.js";
+
+function ChatRoom({ roomId }) {
+  const [serverUrl, setServerUrl] = useState("https://localhost:1234");
+
+  useEffect(() => {
+    const connection = createConnection(serverUrl, roomId);
+    connection.connect();
+    return () => {
+      connection.disconnect();
+    };
+  }, [serverUrl, roomId]);
+}
+```
+
+- **매개변수 1** - `effect` 로직이 포함된 함수로, 컴포넌트가 `DOM`에 추가된 이후에 설정함수를 실행
+- **매개변수 2** - 설정함수의 코드 내부에서 참조되는 모든 반응형 값들이 포함된 배열 (`props`, `state`, 모든 변수 및 컴포넌트)
+
+<br />
+
+## Q. 의존성 값에 따라 어떤 차이가 있을까?
+
+`CASE` 1. 의존성 배열이 비었을 때
+
+```jsx
+useEffect(() => {
+  // ...
+}, []);
+```
+
+⇒ `effect` 로직이 **초기 렌더링 이후 한 번만 실행**된다.
+
+<br />
+
+`CASE` 2. 의존성 배열에 특정 변수를 전달했을 때
+
+```jsx
+useEffect(() => {
+  // ...
+}, [a, b]); // a나 b가 다르면 다시 실행됨
+```
+
+⇒ `effect` 로직이 **초기 렌더링 이후**와 **의존성 배열에 있는 값이 변경**될 때 함께 리렌더링된다.
+
+<br />
+
+### a나 b의 값이 다르다는 것의 의미가 뭐지?
+
+<aside>
+📌 이전 렌더링과 현재 렌더링 사이에 `a`나 `b`의 값이나 **참조가 변경**되었다는 의미이다.
+
+</aside>
+
+조금 더 구체적으로 설명하면 `react`는 컴포넌트가 렌더링될 때마다 의존성 배열의 각 항목을 이전 렌더링 시점의 값과 비교한다. 만약, `a`나 `b`중 하나라도 이전 값과 다르다면 `useEffect` 내부의 코드가 다시 실행된다. 만약 `a`와 `b` 모두 이전 렌더링과 동일하다면, `useEffect` 내부의 코드는 실행되지 않는다.
+
+<br />
+
+### 컴포넌트가 렌더링 될 때마다 의존성 배열의 값을 비교한다고 했는데, 그럼 `useEffect`가 실행되는 시점은 언제일까?
+
+<aside>
+📌 `useEffect`는 **렌더링 이후**에 실행된다.
+
+</aside>
+
+`React`의 렌더링 순서는 아래와 같다.
+
+```
+1. `React`가 컴포넌트 함수를 호출하여 UI를 렌더링한다.
+2. 브라우저가 실제 `DOM`을 업데이트 한다.
+3. **렌더링이 끝난 이후, 이전 렌더링의 의존성 배열 값과 현재 렌더링의 의존성 배열의 값을 비교한다.**
+4. **값이 다르거나 첫 렌더링인 경우, `useEffect` 내부 코드가 실행된다.**
+```
+
+<br />
+
+`CASE` 3. 의존성 배열을 전달하지 않을 때
+
+```jsx
+useEffect(() => {
+  // ...
+}); // 항상 다시 실행됨
+```
+
+⇒ `effect` 로직이 **모든 렌더링과 리렌더링 때마다** 동작한다.
+
+<br />
+
+## Q. useEffect 의 dependency array 에 꼭 들어가야 하는 것은 무엇인가?
+
+### 반드시 포함되어야 하는 것
+
+<aside>📌 `effect` 로직 내부에서 참조하는 모든 반응형 값</aside>
+
+- 여기서 반응형 값이란 “props”나 “컴포넌트 내부에 선언된 모든 변수나 함수”를 의미한다.
+
+```jsx
+function ChatRoom({ roomId })
+  const [serverUrl, setServerUrl] = useState('https://localhost:1234');
+
+  useEffect(() => {
+    const connection = createConnection(serverUrl, roomId); // 반응형 값들을 참조
+    connection.connect();
+    return () => connection.disconnect();
+  }, [serverUrl, roomId]); // ✅ 따라서 이 값들을 의존성 배열에 추가
+  // ...
+}
+```
+
+- `serverUrl` 또는 `roomId`가 변경될 때마다 `Effect` 내부의 로직을 실행시켜야 하기 때문에, 내부에서 사용하는 `state`나 `props`를 의존성 배열에 추가해야 한다.
+
+<br />
+
+### 컴포넌트 내부에 선언된 변수는 알겠는데, 함수도 굳이 추가해야 하는건가?
+
+<aside>
+📌 그렇다.
+
+</aside>
+
+**이유**
+
+- 함수는 매 렌더링마다 재생성되어 새로운 참조를 가지게 되고, 이때 생성 시점의 `props`와 `state`를 캡쳐하는 클로저를 생성한다.
+- 의존성 배열에 함수를 포함하지 않으면 `effect`는 최초 렌더링 함수를 계속 사용하게 된다.
+- 결과적으로 최신 상태가 아닌 오래된 상태를 참조하게 되는 문제가 발생한다.
+
+<br />
+
+### 컴포넌트 내부에 정의된 함수를 의존성 배열에 포함하지 않을 때 어떤 문제가 발생하는가?
+
+<aside>
+📌 **오래된 클로저**를 생성한다.
+
+</aside>
+
+<br />
+
+- 컴포넌트 내부 함수는 정의된 시점의 컴포넌트 상태와 `props`를 기억하는 클로저를 형성하기 때문에, 이 함수가 나중에 호출되면 **정의된 시점의 값을 사용**하게 된다.
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0);
+
+  // 정의된 렌더링 시점의 count를 기억함
+  const logCount = () => {
+    console.log(`Count: ${count}`); // 클로저에 의해 캡처된 count 값
+  };
+
+  useEffect(() => {
+    // 최초 렌더링 시에만 실행
+    const timer = setInterval(() => {
+      logCount(); // 최초 렌더링 시점의 logCount 함수 참조
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []); // 빈 의존성 배열
+
+  return <button onClick={() => setCount(count + 1)}>Increment</button>;
+}
+```
+
+여기서 발생할 수 있는 문제는 다음과 같다.
+
+<br />
+
+최초 렌더링일 때 `count = 0`이기 때문에 `logCount` 함수는 `count` 내부의 값을 0으로 가지고 있다. 따라서 추후 버튼이 클릭되고 `setCount`가 호출되어 컴포넌트가 리렌더링되어도 여전히 현재 `setInterval` 내부에서 호출하는 `logCount`는 첫 렌더링 시점의 `logCount` 함수를 호출하기 때문에, 오래된 클로저 값을 가지게 된다.
+
+<br />
+
+이를 렌더링의 변화와 내부 변수의 값을 파악해보면 아래와 같다.
+
+[1] 첫 번째 렌더링
+
+- `count` = 0
+- `logCount` 함수 - `count` = 0
+- `useEffect` 콜백
+  - `setInterval` 콜백 - 첫 번째 렌더링의 `logCount` 참조
+
+<br />
+
+[2] 두 번째 렌더링
+
+- `count` = 1
+- `logCount` 함수 - `count` = 1
+- `useEffect` 콜백
+  - 실행되지 않음 ⇒ 즉, 여기 내부에서 실행되는 `setInterval`은 최신 `count`값을 받아오지 못하는 문제가 발생하는 것이다.
+
+<br />
+
+이 문제를 해결하기 위해서는 2가지 방법이 있다.
+
+**1. 의존성 배열에 함수를 추가하기**
+
+```jsx
+useEffect(() => {
+  const timer = setInterval(() => {
+    logCount();
+  }, 1000);
+
+  return () => clearInterval(timer);
+}, [logCount]); // logCount 포함
+```
+
+- 이렇게 되면 `logCount`가 의존성 배열로 포함되어 있기 때문에, 이전 타이머가 제거되고 새로운 타이머를 설정하는 과정에서 `setInterval` 내부의 `logCount` 함수도 최신 값을 참조할 수 있다.
+
+<br />
+
+**2. `useEffect` 내부에 함수를 넣기 + 함수 내부에서 사용되는 `state`를 의존성 배열에 추가하기**
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    // 함수를 효과 내부에 정의
+    const logCount = () => {
+      console.log(`Count: ${count}`);
+    };
+
+    const timer = setInterval(() => {
+      logCount();
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [count]); // count만 의존성으로 포함
+
+  return <button onClick={() => setCount(count + 1)}>Increment</button>;
+}
+```
+
+- 실제로 `logCount` 함수 내부에 있는 `count`를 의존성 배열에 추가하고, 함수를 `useEffect` 내부에 작성해주면 문제를 해결할 수 있다. 그 이유는 `count`가 변경됨에 따라 `logCount`도 새롭게 생성되고, 이 함수 자체를 `setInterval`으로 설정해줄 수 있기 때문이다.
+
+<br />
+
+### 굳이 의존성 배열에 포함되지 않아도 되는 것은 ?
+
+[1] **상수값** (단일 변수) : 렌더링 간에 변하지 않기 때문
+
+[2] **React 내장 함수** : 항상 동일한 참조를 가지기 때문 (ex) `setState` 등)
+
+[3] **컴포넌트 외부에서 정의된 함수**
+
+<br />
+
+## Q. `cleanup function` 은 왜 필요하고, 언제 사용하는가?
+
+### **필요한 이유**
+
+<aside>
+📌 `effect`가 수행한 작업을 **중지/취소/정리**하기 위해 필요하다.
+
+`React` 컴포넌트가 **외부 시스템과의 동기화를 올바르게 유지**하도록 돕는다.
+
+</aside>
+
+<br />
+
+[1] 주로 브라우저 `API`, 서드파티 라이브러리, 네트워크와 같은 외부 시스템과 `React` 컴포넌트를 동기화하기 위해 사용된다.
+
+[2] `effect` 내부에서 시작된 작업들은 명시적으로 중지하지 않으면 **메모리 누수**가 발생될 수 있기 때문이다.
+
+[3] 의존성이 변경될 때, 이전 렌더링의 `Effect`가 수행했던 작업을 정리한 후 새로운 값으로 `effect`를 다시 실행시켜야 하기 때문이다.
+
+<br />
+
+### 클린업 함수가 실행되는 시점은 언제일까?
+
+[1] `effect`의 의존성이 변경되어 `effect`가 다시 실행되기 직전에 이전 `effect` 실행에서 반환된 클린업 함수가 실행
+
+[2] 컴포넌트가 화면에서 제거될 때 (언마운트)
+
+[3] 개발 중 `StrictMode`에서 컴포넌트가 마운트된 직후
+
+<br />
+
+### 이전 `effect` 실행에서 반환된 클린업 함수가 먼저 실행되는 이유는?
+
+이전 동기화 작업을 먼저 중지하기 위해서이다.
+
+- 기존에 `effect`에서 실행된 외부 시스템과의 연결이나 작업들은 의존성이 변경될 때, 더이상 유효하지 않거나 다른 값에 대해서 다시 설정될 수 있다.
+- ex) `roomId`가 변경된 경우, 다른 채팅방으로 옮겨야 하는데 이때 연결을 끊는 클린업 함수를 먼저 실행시켜야 새로운 채팅방에 접속할 수 있기 때문이다.
+
+<br />
+
+### 개발 모드에서 마운트 시에 `effect`를 두 번 실행하는 이유는?
+
+<aside>📌 클린업 로직을 잘 구현했는지 테스트하기 위함</aside>
+
+<br />
+
+- `effect`를 실행한 이후 클린업 함수를 바로 실행해보면서, **개발자가 클린업 함수를 올바르게 구현한 것인지 스트레스 테스트를 하기 위함**이다.
+
+<br />
+
+### 클린업 함수가 사용되는 경우는 언제일까?
+
+[1] 채팅 서버 연결 및 해제
+
+[2] 이벤트 구독 및 구독 취소
+
+[3] 타이머 설정 및 해제
+
+[4] 데이터 패칭
+
+<br />
+
+## Q. `useEffect` 에서 **`react-hooks/exhaustive-deps`** 를 꼭 지켜야 하는가? 아니면 `warning` 인데, 무시하고 사용해도 되는가?
+
+<aside>
+📌 리액트에서 강제한 규칙이기 때문에 **지키는 것이 좋다**고 생각한다.
+
+</aside>
+
+<br />
+
+**`useEffect` 의존성 배열의 목적**
+
+- `useEffect`는 컴포넌트를 외부 시스템과의 동기화를 하게 해주는 목적을 가지는데, 이때 의존성 배열은 `React`에게 `effect`가 **어떤 반응형 값에 의존하는지**를 알려주는 역할을 함
+
+<br />
+
+**`react-hooks/exhaustive-deps` 의 역할**
+
+- `effect` 코드 내부에서 사용되는 **모든 반응형 값이 의존성 배열에 포함되어 있는지** 확인
+- `effect`의 의존성은 개발자가 선택하는 것이 아니라, **`effect` 내부 코드가 어떤 반응형 값을 읽는지에 따라 결정됨**
+- 따라서 린터가 **의존성 누락을 경고하는 것**은 `effect`가 실제로 의존하는 값이 변경되었을 때, 다시 실행되지 않아 **버그가 발생할 위험이 있다는 것**을 알려주는 것임.
+
+<br />
+
+- **경고를 무시하면 안되는 이유**
+  - 버그를 숨기게 되면, 의존성 배열에 있는 값을 변경했을 때 내부 `effect` 로직이 실행되지 않아 `UI` 상태와 외부 시스템의 상태가 일치하지 않는 **동기화 문제**가 발생된다.
+
+<br />
+
+## Q. useEffect 에서 effect 는 무슨 의미인가?
+
+<aside>
+📌 `React` 컴포넌트를 외부 시스템과 동기화하는데 사용되는 부수 효과
+
+</aside>
+
+<br />
+
+[1] **렌더링 자체에 의해 발생**하는 부수 효과
+
+- 사용자의 특정 상호작용에 의해 직접적으로 발생하는 것이 아닌, **컴포넌트의 렌더링 과정의 결과로 발생**하는 부수효과를 의미한다.
+- 이벤트 : 채팅에서 메세지를 보내는 것
+- 부수 효과 : 채팅방과의 연결을 설정하는 것 ⇒ 채팅 컴포넌트가 화면에 표시되었기 때문에 발생하는 effect임
+
+<br />
+
+[2] 외부 시스템과의 동기화
+
+- 외부 시스템은 `React`가 직접적으로 제어하지 않는 모든것을 의미한다. (ex) 브라우저 API, 서드파티 라이브러리, 네트워크 요청 등)
+
+<br />
+
+### `useEffect`에서 다루는 부수 효과는 어떤 의미인가?
+
+<aside>
+📌 컴포넌트의 렌더링 결과로 발생하며, 주로 `React` 컴포넌트와 브라우저나 네트워크와 같은 `React` 외부 시스템 간의 상태를 동기화하기 위한 반응형 코드 블록
+
+</aside>
+
+<br />
+
+- 컴포넌트가 화면에 표시되었기 때문에, 컴포넌트의 특정 `props`이나 `state`가 변경되어 다시 렌더링되었기 때문에 수행되어야 하는 작업
+- `React`의 렌더링 단계는 순수해야 하고, 부수 효과를 포함하면 안되기 때문에 `useEffect`는 이러한 부수 효과를 렌더링 단계와 분리하여 `DOM`의 업데이트가 완료된 이후에 실행시키도록 지연
+
+<br />
+
+# 참고
+
+[https://ko.react.dev/learn/escape-hatches](https://ko.react.dev/learn/escape-hatches)
+
+[https://ko.react.dev/reference/react/useEffect](https://ko.react.dev/reference/react/useEffect)
