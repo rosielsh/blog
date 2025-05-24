@@ -1,0 +1,481 @@
+---
+title: "React에서 선언적으로 Toast 컴포넌트 처리하기 (feat. Context API, createPortal)"
+date: 2025-05-25
+desc: 페이먼츠 모듈 미션을 수행하며 기존 Modal 컴포넌트를 리팩토링한 과정을 기록했습니다.
+thumbnail: /posts/개발/2/thumbnail.png
+---
+
+# 들어가며
+
+상품 목록 미션을 진행하면서, 아래와 같이 사용자에게 **에러가 발생했다**는 피드백을 제공하는 `Toast`를 띄우는 기능을 구현했다.
+
+<br />
+
+<img src="/posts/개발/2/1.png" width="400px" />
+
+<br />
+
+처음에는 간단한 구조였지만, 다양한 상황에서 `Toast` 컴포넌트를 띄울 일이 많아졌다.
+
+문제는 이런 방식이 서비스의 규모가 커질수록 상태 관리하는 포인트가 늘어난다는 점이었다.
+
+오늘은 이런 `Toast`를 관리하는 복잡함을 해결하기 위해 진행한 **리팩토링 과정과 개선 전후를 비교**해보는 내용을 작성해보려고 한다.
+
+<br />
+
+# 기존 방식은 어떤 문제가 있었을까?
+
+`step1`에서 초기에 구현한 `Toast` 관리 방식은 아래와 같다.
+
+```jsx
+function ProductsPage() {
+  ...
+  const [isErrorAddCardItem, setIsErrorAddCardItem] = useState(false);
+  const [isErrorDeleteCardItem, setIsErrorDeleteCardItem] = useState(false);
+  const [isOverItemCounts, setIsOverItemCounts] = useState(false);
+
+  ...
+  if (itemCount >= 50) {
+      setIsOverItemCounts(true);
+      setTimeout(() => {
+        setIsOverItemCounts(false);
+      }, 3000);
+
+      return;
+    }
+  ...
+
+  return (
+    <div className={productPageContainer}>
+    ...
+      {isErrorCarts && <Toast text="장바구니 정보를 불러오지 못했습니다." varient="error" />}
+      {isErrorProducts && <Toast text="상품 정보를 불러오지 못했습니다." varient="error" />}
+      {isErrorAddCardItem && <Toast text="장바구니에 상품을 담지 못했습니다." varient="error" />}
+      {isErrorDeleteCardItem && <Toast text="장바구니에 상품을 빼지 못했습니다." varient="error" />}
+      {isOverItemCounts && (
+        <Toast text="장바구니는 최대 50개의 상품을 담을 수 있습니다." varient="error" />
+      )}
+    </div>
+  );
+}
+
+export default ProductsPage;
+```
+
+<br />
+
+### 1. 개별적인 상태관리를 하다 보면 상태가 무한대로 늘어난다.
+
+하나의 컴포넌트에서 여러개의 `Toast`를 개별적으로 관리하는 형태로 구현하게 되었다.
+
+이미 3개의 `Toast`와 관련된 상태가 있고, 각각을 위한 에러 처리 로직도 따로 존재한다. 만약 성공 로직을 위한 `Toast`나 별도의 에러 처리가 필요한 상황이 늘어난다면, 상태의 개수는 더욱 늘어날 수 밖에 없는 구조이다.
+
+```jsx
+const [isErrorAddCardItem, setIsErrorAddCardItem] = useState(false);
+const [isErrorDeleteCardItem, setIsErrorDeleteCardItem] = useState(false);
+const [isOverItemCounts, setIsOverItemCounts] = useState(false);
+
+// ... 무한대로 늘어나는 상태
+```
+
+<br />
+
+### 2. 코드 중복이 발생하고, 일관성이 부족하다.
+
+`Toast`를 표시하는 모든 곳에서 동일한 `setTimeout` 로직이 반복된다. 만약 `Toast`가 사라지는 시간을 3초에서 5초로 변경하려면, 모든 곳을 찾아서 수정해야 한다. 또한 새로운 개발자가 `Toast` 기능을 추가할 때마다, 이러한 중복되는 코드를 알아야 하고, 실수로 다른 방식으로 구현할 가능성도 존재한다.
+
+<br />
+
+각 상태로 `Toast` 상태를 토글할 때마다 동일한 패턴의 로직이 반복된다.
+
+```jsx
+if (itemCount >= 50) {
+  setIsOverItemCounts(true);
+  setTimeout(() => {
+    setIsOverItemCounts(false);
+  }, 3000);
+
+  return;
+}
+```
+
+반복되는 로직을 추상화해보면 아래와 같다.
+
+[1] 에러 발생 시 `Toast`를 표시하고 자동으로 숨긴다.
+
+[2] 조건을 확인하고 `Toast`를 표시한다.
+
+<br />
+
+# 개선의 필요성을 인식하다
+
+이러한 문제점을 느끼고 있었고, 코드 리뷰를 통해 리뷰어에게 아래와 같은 질문을 했다.
+
+<br />
+
+<img src="/posts/개발/2/2.png" width="600px" />
+
+<br />
+
+이를 통해 받은 리뷰어의 답변에서, 내가 생각하지 못했던 새로운 관점을 알 수 있었다.
+
+<br />
+
+<img src="/posts/개발/2/3.png" width="600px" />
+
+<br />
+
+상세한 `PR` 내용은 아래 링크를 통해 확인할 수 있다.
+
+[상품 목록 PR 바로 가기](https://github.com/woowacourse/react-shopping-products/pull/87)
+
+<br />
+
+## 리뷰를 통해 얻은 인사이트
+
+[1] **전역에서 접근하는 방법**이 있을 수 있다.
+
+`Toast`는 본질적으로 어떤 컴포넌트에서든 필요할 수 있는 기능이다.
+
+`API` 호출이나 사용자의 특정 액션에 대한 결과를 제공해야 하는 상황은 특정 컴포넌트만이 아니라 어플리케이션 전반적으로 걸쳐서 발생하기 때문에, **각각의 컴포넌트가 개별적으로 `Toast` 상태를 관리하는 것**보다는 **전역에서 접근 가능한 방식이 더 효율적일 수도 있겠다**는 생각을 할 수 있었다.
+
+<br />
+
+[2] **상태 관리의 복잡성을 해결**하기 위해서 `Context API`를, 일관성 있는 사용을 위해 커스텀 훅을 활용해볼 수 있겠다.
+
+크리스가 제안한 `Context API`와 커스텀 훅을 사용한 접근 방식을 보면서, 복잡한 상태 관리를 단순화할 수 있을 것 같다는 생각이 들었다. 각각의 컴포넌트에서 여러 개의 `Toast` 상태를 관리하는 대신, 하나의 전역 상태로 통합적으로 관리할 수 있다는 것이 편해보였다.
+
+<br />
+
+# 새로운 설계 방향
+
+## Context API를 통한 상태관리 중앙화
+
+기존에 여러개의 `boolean` 상태로 관리하던 것을 하나의 `Toast` 객체로 통합했다.
+
+```jsx
+type Toast = {
+  text: string,
+  varient: ToastVarientType,
+};
+```
+
+이렇게 하면 `Toast`가 “표시됨 / 숨겨짐” 이라는 상태가 아니라, “어떤 내용의 `Toast`를 보여줄 것인가”라는 데이터 중심의 관점으로 바뀐다.
+
+또한 `Context API`를 통해 어떠한 컴포넌트에서든 `Toast` 기능에 접근할 수 있도록 하고, 커스텀 훅을 만들어서 해당 훅을 호출하면 `Toast`를 띄울 수 있도록 설계했다.
+
+<br />
+
+## createPortal 사용
+
+`Toast`를 구현할 때 `createPortal`을 사용하면 좋은 점이 몇 가지 있다.
+
+<br />
+
+우선, 스타일링의 귀찮음을 해결할 수 있다.
+
+`Toast`는 보통 최상위 레이어에서 표시되어야 한다. 그러나 이때 중첩된 컴포넌트 내부에서 렌더링되면, 부모 컴포넌트의 `CSS` 속성 (`z-index`, `overflow`, `position`)에 영향을 받을 수 있다.
+
+하지만 `createPortal`을 사용하게 되면, 어떠한 위치에서 호출하더라도 `DOM` 트리의 최상단에 `Toast`를 렌더링할 수 있기 때문에 스타일링으로 발생하는 문제를 원천적으로 막을 수 있다.
+
+그리고 이로써 사용자들에게 일관된 UI를 제공할 수 있다는 것도 장점이 될 수 있다.
+
+<br />
+
+# Toast를 개선해보자
+
+### Toast
+
+`Toast` 컴포넌트는 기존에 사용하던 대로 사용헤줬다. `Toast` 내부에 띄울 `text`와, 확장성을 고려하여 `varient`를 `props`로 받아줬다.
+
+```jsx
+import { toastContainer } from "./Toast.style";
+
+export type ToastVarientType = "success" | "error";
+
+type ToastProps = {
+  text: string,
+  varient: ToastVarientType,
+};
+
+export type ToastStyleProps = Omit<ToastProps, "text">;
+
+function Toast({ text, varient }: ToastProps) {
+  return <div className={toastContainer({ varient })}>{text}</div>;
+}
+
+export default Toast;
+```
+
+<br />
+
+### ToastContext
+
+우선 `Toast`의 상태를 전역적으로 관리할 `Context`를 구현한 코드이다.
+
+```jsx
+import { createContext, useState, ReactNode } from "react";
+import { createPortal } from "react-dom";
+import Toast, { ToastVarientType } from "../components/common/Toast/Toast";
+
+type ToastData = {
+  text: string,
+  varient: ToastVarientType,
+};
+
+type ToastContextType = {
+  toast: ToastData | undefined,
+  setToast: (toast: ToastData | undefined) => void,
+};
+
+export const ToastContext =
+  createContext <
+  ToastContextType >
+  {
+    toast: undefined,
+    setToast: () => {},
+  };
+
+export const ToastProvider = ({ children }: { children: ReactNode }) => {
+  const [toast, setToast] = (useState < ToastData) | (undefined > undefined);
+  const portalElement = document.getElementById("toast-root") || document.body;
+
+  return (
+    <ToastContext.Provider value={{ toast, setToast }}>
+      {children}
+      {toast &&
+        createPortal(
+          <Toast text={toast.text} varient={toast.varient} />,
+          portalElement
+        )}
+    </ToastContext.Provider>
+  );
+};
+
+export default ToastProvider;
+```
+
+`Toast`가 있을 때와 없을 때를 구분하기 위해 `Toast | undefined` 타입으로 관리했으며, `Toast`와 관련된 `Context` 정의, 상태 관리, 실제 렌더링 로직을 하나의 파일에서 관리하도록 했다.
+
+또한 `Provider` 내부에서 직접 `createPortal`을 처리하도록 하여, `Toast`를 사용하는 개발자는 `Portal`의 존재를 신경쓰지 않고 `Toast` 상태만 관리하면 올바른 위치에 렌더링되도록 했다.
+
+<br />
+
+### useToast 커스텀 훅
+
+다음으로는 위에서 구현한 `ToastContext`를 내부적인 상태로 가지고, `Toast` 컴포넌트를 쉽게 띄우고 삭제하도록 하는 커스텀 훅을 만들어줬다.
+
+```jsx
+import { useCallback, useContext, useRef } from "react";
+import { ToastVarientType } from "../components/common/Toast/Toast";
+import { ToastContext } from "../contexts/ToastContext";
+
+export const useToast = () => {
+  const { toast, setToast } = useContext(ToastContext);
+  const timeoutRef = (useRef < NodeJS.Timeout) | (null > null);
+
+  const openToast = useCallback(
+    (text: string, varient: ToastVarientType) => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
+      setToast({ text, varient });
+      timeoutRef.current = setTimeout(() => {
+        setToast(undefined);
+      }, 3000);
+    },
+    [setToast]
+  );
+
+  return { toast, openToast };
+};
+```
+
+여러개의 `Toast`가 연속적으로 호출될 수도 있기 때문에, `useRef`를 사용해 타이머를 관리했다.
+
+새로운 `Toast`가 열릴 때 마다 기존 타이머를 정리하고, 새로운 타이머를 설정하는 방식으로 `Toast`가 뜨는 것이 겹치지 않도록 처리했다.
+
+또한 기존에 각각의 컴포넌트에서 반복적으로 작성했던 `setTimeout` 로직을 훅의 내부로 캡슐화했다.
+
+<br />
+
+### App 컴포넌트에 적용
+
+최종적으로 `App` 컴포넌트에서 `ToastProvider`를 적용하여 전체 컴포넌트에서 `Toast` 기능을 사용할 수 있도록 했다.
+
+```jsx
+import ToastProvider from "./contexts/ToastProvider";
+
+function App() {
+  return (
+    <ToastProvider>
+      <ProductsPage />
+      {/* 다른 페이지들... */}
+    </ToastProvider>
+  );
+}
+```
+
+<br />
+
+# 기존 코드와 개선 이후의 코드 비교
+
+### `Before` → 개별 상태 관리 방식
+
+```jsx
+function ProductsPage() {
+  ...
+  const [isErrorAddCardItem, setIsErrorAddCardItem] = useState(false);
+  const [isErrorDeleteCardItem, setIsErrorDeleteCardItem] = useState(false);
+  const [isOverItemCounts, setIsOverItemCounts] = useState(false);
+
+  ...
+  if (itemCount >= 50) {
+      setIsOverItemCounts(true);
+      setTimeout(() => {
+        setIsOverItemCounts(false);
+      }, 3000);
+
+      return;
+    }
+  ...
+
+  return (
+    <div className={productPageContainer}>
+    ...
+      {isErrorCarts && <Toast text="장바구니 정보를 불러오지 못했습니다." varient="error" />}
+      {isErrorProducts && <Toast text="상품 정보를 불러오지 못했습니다." varient="error" />}
+      {isErrorAddCardItem && <Toast text="장바구니에 상품을 담지 못했습니다." varient="error" />}
+      {isErrorDeleteCardItem && <Toast text="장바구니에 상품을 빼지 못했습니다." varient="error" />}
+      {isOverItemCounts && (
+        <Toast text="장바구니는 최대 50개의 상품을 담을 수 있습니다." varient="error" />
+      )}
+    </div>
+  );
+}
+
+export default ProductsPage;
+```
+
+<br />
+
+### `After` → 중앙화된 상태 관리 방식
+
+```jsx
+function ProductsPage() {
+  const { openToast } = useToast();
+
+  const handleAddCartItem = async ({ productId, quantity }) => {
+    if (itemCount >= 50) {
+      openToast("장바구니는 최대 50개의 상품을 담을 수 있습니다.", "error");
+      return;
+    }
+
+    const res = await postCartItem({ productId, quantity });
+    if (!res.ok) {
+      openToast("장바구니에 상품을 담지 못했습니다.", "error");
+    }
+    await refetchCarts();
+  };
+
+  return (
+    <div className={productPageContainer}>
+      {/* Toast 렌더링 코드 완전 제거 */}
+    </div>
+  );
+}
+```
+
+<br />
+
+## 리팩토링으로 인해 개선된 점
+
+### [1] 상태 관리의 복잡도 감소
+
+기존에는 하나의 컴포넌트에서 관리해야 할 에러 상태가 늘어날 수록 `boolean` 상태를 관리해야 했다. 새로운 `Toast`가 필요할 때마다 상태를 추가하고, 타이머 로직과 렌더링 코드를 추가해야 하는 3가지의 작업을 해주어야 했다.
+
+하지만, 개선 이후에는 `Toast`와 관련된 상태가 완전 사라지고, 단순히 `openToast`라는 함수를 호출하는 것 만으로도 모든 `Toast` 기능을 사용할 수 있었다.
+
+<br />
+
+### [2] 코드 라인 수
+
+`before` : 상태 선언(1줄) + 비즈니스 로직 내부 타이머 처리 로직(약 4줄) + 렌더링 라인(1줄)
+
+`after` : `useToast` 선언(1줄) + `openToast` 함수 호출(1줄)
+
+<br />
+
+### [3] 개발자 경험
+
+1, 2번의 장점과 연관되는 차이점으로 **개발자 경험이 개선**되었다.
+
+기존에는 `Toast`를 추가해야 할 때마다 개발자가 기억해야 할 것들은 **상태 변수 이름, `setTimeout` 타이머 설정, 렌더링 부분에 조건부 `Toast` 추가** 등이 있는데,
+
+개선 이후에는 단순하게 어떤 메세지를 보여줄 지만 결정하고 매개변수로 넘겨주면 되기 때문에 개발자 입장에서는 많은 정보를 기억하지 않고, **단순히 함수 한 번만 호출하면 된다**는 장점이 있다.
+
+또한 다양한 정보를 기억하다 보면 그 과정에서 **사소한 실수**를 할 수 있다.
+
+예를 들어, `setTimeout` 로직을 작성하는 과정에서 시간을 다르게 설정한다거나, 타이머를 정리하지 않는 등의 실수를 할 수 있는데 개선 이후의 로직에서는 그 모든 로직을 공통적으로 처리하다 보니 개발자의 실수들을 미리 방지할 수 있다.
+
+<br />
+
+# 생각 정리
+
+### 선언적 컴포넌트 설계에 대한 관점
+
+이번 리팩토링을 통해 **선언적인 프로그래밍의 의미와 가치**에 대해서 체감할 수 있었다.
+
+처음에는 `setIsErrorAddCardItem(true)`와 같이 **“`Toast`의 상태를 `true`로 바꿔라”** 라는 **명령형 접근**이었다면, `openToast()`와 같은 함수를 호출하는 선언적인 방식으로 **“이런 내용의 에러 `Toast`를 띄워라”** 라는 **선언형 접근**을 할 수 있었다.
+
+그리고 이 과정에서 선언적인 설계를 하기 위해서는 아래와 같은 고민들이 필요하다는 것을 느낄 수 있었다.
+
+[1] 의도를 명확하게 하는 메서드 명과 역할
+
+[2] 구현의 세부 사항을 캡슐화하기
+
+<br />
+
+### 상태를 관리하는 방식에 대한 기준
+
+처음에는 지역적인 상태 관리를 하다가, `Context API`를 통해 전역 상태로 관리해주었다.
+
+이 과정에서 **어떤 기준으로 지역 상태 관리와 전역 상태 관리를 구분해야 할까?** 에 대한 궁금증이 생겼다.
+
+고민을 하다가, 결국 가장 중요하게 생각할 것은 **어떤 상태인가에 따라 다르지 않을까?** 라는 생각에 도달했다.
+
+지역적으로 관리해야 하는 데이터와 전역으로 관리해야 하는 데이터의 특성을 구분하자면 아래와 같을 것 같다.
+
+<br />
+
+**📊 지역적**으로 관리해도 괜찮은 상태
+
+- 특정 컴포넌트에서만 사용되는 UI 상태
+- 컴포넌트의 생명 주기와 밀접한 데이터
+- 다른 컴포넌트와 공유할 필요가 없는 임시 데이터
+
+<br />
+
+**📊 전역적**으로 관리해야 하는 상태
+
+- 여러 컴포넌트에서 공유되는 데이터
+- 서비스 전반에 걸쳐 일관된 동작이 필요한 데이터
+
+<br />
+
+따라서 `Toast`가 전역 상태로 관리되어야 하는 이유는 “여러 곳에서 사용되기 때문”도 있지만, “사용자에게 일관된 경험을 제공”해야 하기 때문이라고 판단했다.
+
+<br />
+
+### 추가적으로 개선할 수 있는 방향
+
+- 현재는 하나의 `Toast`만 표시할 수 있는데, 여러 개의 `Toast`를 보여주고 싶을 때는 어떻게 해야할까?
+
+<br />
+
+# 마무리하며
+
+이번 `Toast` 컴포넌트를 리팩토링하는 과정에서, 단순히 코드를 개선하는 것을 넘어서 선언적인 컴포넌트에 대한 관점과 상태 관리 전략에 대해서 생각해볼 수 있었다.
+
+또한 리뷰어와의 소통을 통해, 혼자서는 생각해보지 못할 접근 방식을 알게 되었고 그것을 단순히 따라하지 않고 나만의 방식으로 소화하고 적용하면서 깊이있는 학습을 할 수 있었다고 생각한다. 특히 이번 기회로 새롭게 알게된 `createPortal`은 앞으로 호출하는 컴포넌트의 위치와 관계없이 일관된 UI를 보여주고 싶을 상황이 올 때 자주 사용할 것 같다.
