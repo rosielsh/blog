@@ -1,0 +1,330 @@
+---
+title: "useState는 어떻게 렌더링 간의 데이터를 유지할까"
+date: 2025-06-01
+desc: useState를 사용할 때, 리렌더링 시 데이터를 유지하는 이유에 대해 정리한 글입니다.
+thumbnail: /posts/생각해보기/useState는 어떻게 렌더링 간의 데이터를 유지할까/react.png
+---
+
+# 들어가며
+
+`react`로 개발을 할 때, `UI`에 실시간으로 반영해야 하는 상태를 저장하기 위해서는 `React`에서 제공하는 `useState` 훅을 사용해야 한다.
+
+이때, `useState`를 통해 반환받는 `setState` 함수를 통해 값을 변경하면 리렌더링이 발생한다.
+
+<br />
+
+여기서 한가지 의문이 생겼다.
+
+리렌더링이 발생하면 현재 컴포넌트에 해당하는 함수가 재실행되는 것으로 알고 있는데, 그렇게 되면 초기에 상태값으로 넣어준 값이 다시 초기화가 되지는 않을까?
+
+하지만 `react`는 아무리 리렌더링이 발생해도 초기값으로 되돌아 가는 일은 없다.
+
+<br />
+
+`useState`는 어떻게 동작하길래 항상 초기값으로 돌아가는 것이 아니라, 이전의 값을 기억하고 렌더링 간의 데이터를 유지하는 걸까?
+
+오늘은 이에 대한 답을 알아가는 과정을 기록해보려고 한다.
+
+<br />
+
+## React에서 쓰이는 useState의 예제
+
+아래는 `useState`를 쓰는 예시이다.
+
+`useState` 함수의 인자로 초깃값을 넣어주게 되면, 이에 대한 반환값으로 **[현재 상태의 값, 상태를 변경시키는 함수]** 형태로 반환받을 수 있다.
+
+```jsx
+import { useState } from "react";
+
+export default function Counter() {
+  const [count, setCount] = useState(0);
+
+  function handleClick() {
+    setCount(count + 1);
+  }
+
+  return <button onClick={handleClick}>You pressed me {count} times</button>;
+}
+```
+
+<br />
+
+### 위 예제가 실행되는 과정
+
+이 컴포넌트가 실헹되고 리렌더링 되기까지의 과정을 작성하면 아래와 같다.
+
+<br />
+
+**[1] 초기에 컴포넌트가 마운트 된다.**
+
+- `Counter` 함수가 호출되고, `useState`의 초깃값으로 0을 넣어주게 되며 `useState` 훅은 초기 상태값인 0과 `setter` 함수를 반환한다.
+
+<br />
+
+**[2] 사용자가 버튼을 클릭한다.**
+
+- 사용자가 버튼을 클릭하면, 브라우저가 클릭 이벤트를 감지하고 `handleClick`이라는 함수가 실행된다.
+- `handleClick` 함수가 실행되면 `setCount(0 + 1)`이 실행되고, 해당 `setCount` 내부에 있는 로직이 상태 업데이트 큐에 추가된다.
+
+<br />
+
+**[3] 리렌더링이 발생한다.**
+
+- `Counter` 함수를 재호출하게 되고, 이때 `useState`를 다시 실행하게 된다.
+  `useState`를 통해 반환받는 `count`가 초깃값으로 설정해준 `0`이 아니라 **이전 업데이트 함수를 통해 넘겨준 값인 `1`이 반환**된다.
+
+<br />
+
+**[4] 재조정이 실행된다.**
+
+- 현재 텍스트 내용이 `You pressed me 0 times`에서 `You pressed me 1 times` 으로 변경되었으므로, 버튼 엘리먼트 자체는 재생성하지 않고 텍스트 노드만을 업데이트하게 된다.
+
+<br />
+
+**[5] 실제 커밋이 실행된다.**
+
+- `React`가 실제 `DOM`의 텍스트 노드를 업데이트 하게 되고, 브라우저에서 `You pressed me 0 times`에서 `You pressed me 1 times`이라는 문구로 변경된 화면이 보여지게 된다.
+
+<br />
+
+여기서 주목해야 하는 사실은 리렌더링이 발생했을 때, 즉 현재 `Counter`라는 컴포넌트가 재실행 됐을 때 `useState`의 실행 결과로 반환받는 `count`가 초깃값인 0이 아니라 1이라는 점이다.
+
+<br />
+
+이렇게 동작하는 원리를 알기 위해서는 `Javascript`의 클로저라는 개념을 알아야 한다.
+
+<br />
+
+---
+
+## Javascript의 closure
+
+일반적인 함수의 실행은 어떻게 동작하는지 알아보자.
+
+```jsx
+function normalFunction() {
+  let localVar = 100;
+  console.log(localVar);
+}
+
+normalFunction(); // 100 출력
+```
+
+일반적으로 함수가 실행되면, 해당 함수의 **실행 컨텍스트가 생성**되고, **함수 내부의 지역 변수들이 메모리에 할당**된다. 함수 실행이 완료되면, 이 실행 컨텍스트는 콜 스택에서 제거되고, 이때 생성된 지역 변수인 `localVar`도 **가비지 컬렉션의 대상**이 되어 메모리에서 제거된다.
+
+<br />
+
+하지만 클로저는 다르게 동작한다. 아래는 클로저를 이해할 수 있는 기본적인 예제이다.
+
+```jsx
+function outer() {
+  let outerVar = 1;
+
+  function inner() {
+    console.log(outerVar);
+  }
+
+  return inner;
+}
+
+const closure = outer();
+closure(); // 출력: 1
+```
+
+<br />
+
+직관적으로 봤을 때는 당연히 `closure` 함수를 실행하는 시점에는 `outerVar` 변수에 접근하지 못할 것이라고 예상할 수 있다. `closure` 함수를 실행하기 전에 바로 위에 있는 `outer` 함수를 실행하게 되면 `outerVar` 변수는 없어질 것이라고 생각할 수 있기 때문이다.
+
+<br />
+
+하지만 `closure` 함수를 실행하면 1이라는 값이 잘만 출력된다.
+
+이는 `Javascript`에서 **함수는 정의된 위치에 따라 상위 스코프가 결정**되는 **렉시컬 스코프**를 따르기 때문이다.
+
+`inner` 함수는 `outer` 함수의 내부에서 정의되었기 때문에 `outer` 함수의 변수들에 접근할 수 있는 권한을 가지게 되는 것이다.
+
+<br />
+
+그렇다면 **왜 `outerVar` 변수는 메모리에서 사라지지 않는 걸까?**
+
+```jsx
+function outer() {
+  let outerVar = 1; // inner에서 사용하고 있는 변수
+  let unusedVar = 2; // inner에서 사용하지 않는 변수
+
+  function inner() {
+    console.log(outerVar); // outerVar만 참조
+  }
+
+  return inner;
+}
+```
+
+여기서 `inner` 함수가 `outerVar`을 참조하고 있기 때문에, `outer` 함수의 실행이 끝나도 `outerVar`를 메모리에서 제거하지 않는다. 반면 `unusedVar`는 `inner` 함수에서 사용되지 않기 때문에 가비지 컬렉션의 대상이 된다.
+
+<br />
+
+정리하자면 외부 함수에서 반환하는 내부 함수가 참조하는 변수는 외부 함수가 종료되어도 소멸 대상에 해당하지 않아 가비지 컬렉션의 대상이 되지 않는 것이다.
+
+<br />
+
+## useState도 closure으로 구현되어 있다
+
+`useState`가 **렌더링 간에 값을 저장할 수 있는 원리**를 알아보기 위해 클로저에 대해서 알아보았다.
+
+위의 예제에서 `outer` **함수가 호출된 이후에도 값이 초기화되지 않고 살아있는 `outerVar` 변수**를 볼 수 있었듯이, `useState`도 위와 같은 클로저의 특성을 이용한다.
+
+<br />
+
+`React`는 각 컴포넌트의 상태를 관리하기 위해 전역 변수를 사용한다. `ReactFiberHooks.js` 파일을 보면 다음과 같은 변수들을 확인할 수 있다
+
+```jsx
+let currentlyRenderingFiber = null; // 현재 렌더링 중인 컴포넌트
+let currentHook = null; // 현재 처리 중인 hook
+let workInProgressHook = null; // 작업 중인 hook
+```
+
+<br />
+
+이러한 전역 변수들이 클로저 환경을 형성하는 요소가 된다.
+
+`useState`를 호출하면 컴포넌트가 처음 렌더링될 때 `mountState` 함수가 호출되고, 여기서 클로저가 생성된다.
+
+```jsx
+function mountState(initialState) {
+  // 새로운 hook 객체 생성
+  const hook = mountWorkInProgressHook();
+
+  // 초기 상태 설정
+  if (typeof initialState === "function") {
+    initialState = initialState();
+  }
+
+  hook.memoizedState = hook.baseState = initialState;
+
+  // 업데이트 큐 생성
+  const queue = {
+    pending: null,
+    interleaved: null,
+    lanes: NoLanes,
+    dispatch: null,
+    lastRenderedReducer: basicStateReducer,
+    lastRenderedState: initialState,
+  };
+  hook.queue = queue;
+
+  // 클로저 생성 -> dispatch 함수 생성
+  const dispatch = (queue.dispatch = dispatchSetState.bind(
+    null,
+    currentlyRenderingFiber, // 현재 컴포넌트 fiber 캡처
+    queue // 현재 hook의 큐 캡처
+  ));
+
+  return [hook.memoizedState, dispatch];
+}
+```
+
+이때 주목할 점은 `bind` 메서드를 사용해 `dispatchSetState` 함수에 **특정 컴포넌트의 정보**와 **해당 훅의 큐**를 클로저에 캡쳐한다는 것이다.
+
+`useState`의 `setState`가 호출되면 `dispatchSetState` 함수가 실행되는데, 이때 클로저에 캡쳐되어 있는 정보를 사용한다.
+
+```jsx
+function dispatchSetState(fiber, queue, action) {
+  // fiber와 queue는 useState 호출 시점에 클로저로 캡처된 값들
+  // 렌더링이 끝난 후에도 정확한 컴포넌트와 상태에 접근 가능함
+
+  const update = { action };
+  enqueueUpdate(fiber, queue, update); // 바인딩 된 queue를 사용
+  scheduleUpdateOnFiber(fiber); // 바인딩 된 fiber 사용
+}
+```
+
+<br />
+
+## 실제 useState 코드가 동작하는 예시
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0);
+
+  return <button onClick={() => setCount(count + 1)}>{count}</button>;
+}
+```
+
+**렌더링 시**
+
+[1] `useState(0)` 호출
+
+[2] `mountState` 함수 실행으로 새로운 hook 객체 생성
+
+[3] `setCount` 함수가 생성되면서 현재 컴포넌트의 정보를 클로저에 캡쳐 (자신의 렉시컬 스코프에 고정)
+
+[4] 렌더링 완료 후에도 `setCount`는 자신이 속한 컴포넌트를 기억하고 있음
+
+<br />
+
+**클릭 시**
+
+[1] `setCount(1)` 호출
+
+[2] 클로저에 저장된(함수 생성 시점에 바인딩 된) 컴포넌트 정보로 상태 업데이트
+
+[3] 리렌더링 발생
+
+<br />
+
+## 각 컴포넌트가 독립적인 상태를 가지는 이유
+
+각각의 컴포넌트를 생성할 때, 컴포넌트의 여러 인스턴스도 각각의 독립적인 상태를 유지할 수 있는 이유도 **클로저 덕분**이다.
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0); // 첫 번째 클로저
+  const [name, setName] = useState("React"); // 두 번째 클로저
+
+  // setCount는 count 상태의 fiber + queue를 기억
+  // setName은 name 상태의 fiber + queue를 기억
+}
+```
+
+이러한 클로저의 원리를 통해 `React`는 **함수형 컴포넌트에서도 각 상태가 독립적으로 유지**되면서, **렌더링이 끝난 후에도 정확한 상태를 업데이트**할 수 있다.
+
+함수가 실행 완료된 후에도 특정 변수에 접근할 수 있다는 클로저의 핵심 특성을 활용한 것이다.
+
+<br />
+
+# 정리
+
+`useState`가 상태를 유지하는 원리는 다음과 같다.
+
+[1] `bind` 메서드로 특정 컴포넌트의 `fiber`와 `hook queue`를 새로 생성되는 함수의 클로저 환경에 바인딩한다.
+
+[2] 각 컴포넌트 인스턴스와 각 `useState` 호출마다 독립적인 클로저 환경이 생성되어 상태가 서로 분리된다.
+
+[3] 클로저에 바인딩된 정보를 통해 렌더링이 끝난 후에도 정확한 컴포넌트의 상태에 접근할 수 있다.
+
+<br />
+
+지금까지 `useState`가 렌더링 간에 상태를 어떻게 유지할 수 있는지를 알아보았다.
+
+결론적으로 `useState`는 클로저를 활용해 컴포넌트와 상태 정보를 함수에 바인딩하기 때문에 리렌더링이 발생해도 초기값으로 초기화되지 않고, 이전에 저장된 상태값을 유지할 수 있는 것이다.
+
+<br />
+
+# 마무리하며
+
+`useState`가 어떻게 렌더링 간의 상태를 유지하는지 알아보면서 `React`도 결국 `Javascript` 기반으로 만들어진 라이브러리이기 때문에 `Javascript` 지식이 중요하다는 생각이 들었다.
+
+`React` 내부의 코드를 까보면서 `useState`가 동작하는 방식을 어렴풋이 알 수 있었고, 클로저라는 개념이 어떤 상황에서 쓰이는지를 직관적으로 알 수 있었다.
+
+<br />
+
+# 참고
+
+[https://github.com/facebook/react/blob/main/packages/react-reconciler/src/ReactFiberHooks.js](https://github.com/facebook/react/blob/main/packages/react-reconciler/src/ReactFiberHooks.js)
+
+[https://medium.com/hcleedev/web-usestate%EC%9D%98-%EB%8F%99%EC%9E%91-%EC%9B%90%EB%A6%AC%EC%99%80-%ED%95%A8%EC%A0%95-7b4825c16b9](https://medium.com/hcleedev/web-usestate%EC%9D%98-%EB%8F%99%EC%9E%91-%EC%9B%90%EB%A6%AC%EC%99%80-%ED%95%A8%EC%A0%95-7b4825c16b9)
+
+[https://www.netlify.com/blog/2019/03/11/deep-dive-how-do-react-hooks-really-work/](https://www.netlify.com/blog/2019/03/11/deep-dive-how-do-react-hooks-really-work/)
+
+[https://velog.io/@jjunyjjuny/React-useState%EB%8A%94-%EC%96%B4%EB%96%BB%EA%B2%8C-%EB%8F%99%EC%9E%91%ED%95%A0%EA%B9%8C](https://velog.io/@jjunyjjuny/React-useState%EB%8A%94-%EC%96%B4%EB%96%BB%EA%B2%8C-%EB%8F%99%EC%9E%91%ED%95%A0%EA%B9%8C)
