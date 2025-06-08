@@ -1,0 +1,437 @@
+---
+title: "key값으로 인덱스를 넣으면 안되는 이유"
+date: 2025-06-08
+desc: key값으로 인덱스를 넣으면 안되는 이유를 알아보는 글입니다.
+thumbnail: /posts/생각해보기/key값으로 인덱스를 넣으면 안되는 이유/2.png
+---
+
+# 들어가며
+
+페이먼츠 미션을 수행하면서 `key` 속성을 넣지 않아서 `warning`이 발생했다.
+
+아래는 공통 컴포넌트인 `input`이고, `key`라는 속성을 넣지 않은 상태이다.
+
+```jsx
+{
+  values.map((value: string, idx: number) => (
+    <Input
+      // key?
+      value={value}
+      onChange={(e) => onChange({ value: e.target.value, idx })}
+      onBlur={(e) => validate({ value: e.target.value, idx })}
+      maxLength={CARD_NUMBER.MAX_LENGTH}
+      placeholder={CARD_NUMBER.PLACEHOLDER}
+      isError={isErrorStates[idx]}
+      id="card-number"
+    />
+  ));
+}
+```
+
+<img src="/posts/생각해보기/key값으로 인덱스를 넣으면 안되는 이유/1.png" />
+
+<br />
+
+위의 콘솔에 있는 에러 문구를 해석해보면 아래와 같다.
+
+> 리스트에 있는 각각의 자식은 `key` 프로퍼티를 가져야 한다.
+
+하지만 처음에는 단순한 `warning`이라고 생각했기 때문에 일단 해결하지 않은 상태로 미션을 제출했고, 리뷰어의 리뷰를 통해 `key` 속성의 필요성을 깨달을 수 있었다.
+
+<br />
+
+<img
+  src="/posts/생각해보기/key값으로 인덱스를 넣으면 안되는 이유/2.png"
+  width="500px"
+/>
+
+<br />
+
+그러나 내가 수정한 코드에서는 `key` 내부에 배열의 `index`를 그대로 넣어주었다.
+
+하지만 이런 방식으로 `key`의 값으로 배열의 `index`를 넣는 패턴은 권장되지 않는다고 한다.
+
+오늘은 이에 대한 이유를 알아가보려고 한다.
+
+<br />
+
+---
+
+# Key는 어떤 역할을 할까?
+
+> 컴포넌트가 어떤 배열 항목에 해당하는지 `React`에 알려주어 나중에 일치시킬 수 있도록 합니다.
+
+> 이는 배열 항목이 정렬 등으로 인해 이동하거나 삽입되거나 삭제될 수 있는 경우 중요해집니다.
+
+( in 리액트 공식 문서 )
+
+<br />
+
+### **`React`에서 `key`가 필요한 이유**
+
+`key` 는 쉽게 말하자면 폴더 내부의 파일 이름을 의미한다. 즉, 컴포넌트가 자신이 누구인지 식별 가능하도록 하는 역할을 하는 것이다.
+
+만약 수많은 파일들에 식별 가능한 이름이 없다면 어떨까? 첫 번째 파일부터 순서대로 찾아야 한다. 만약 파일이 수십만개가 된다면? 처음부터 찾는 것은 굉장히 수고로운 작업이 될 것이다.
+
+이를 위해서 `React`는 `key`라는 프로퍼티를 통해 형제 항목간에 항목을 고유하게 식별할 수 있게 한다.
+
+<br />
+
+`React`가 특정 항목을 빠르게 인식하기 위해서 `key`라는 속성을 사용하는 것은 알겠다.
+
+그렇다면 왜 `key`라는 속성에 `index`를 넣으면 안되는 걸까?
+
+그냥 고유한 어떠한 값만 넣어주면 항목을 구분하기에 충분하지 않은건가?
+
+이를 동작 원리 관점에서 이해하기 위해서는 `React`가 렌더링을 어떤 방식으로 처리하는지를 알아야 한다.
+
+<br />
+
+---
+
+# 재조정 알고리즘
+
+재조정 알고리즘이란 리액트가 효율적으로 렌더링하는 방법이다.
+
+재조정 알고리즘 - 두 가상 `DOM` 트리(이전의 가상 트리와 새로운 가상 트리) 간의 최소한의 변경사항을 찾고 실제 `DOM`을 업데이트
+
+이러한 재조정 알고리즘을 대략적인 그림으로 나타내면 아래와 같다.
+
+<img src="/posts/생각해보기/key값으로 인덱스를 넣으면 안되는 이유/3.png" />
+
+<br />
+
+`DOM` 트리 간의 차이점을 찾는 단계에서 리액트의 `diffing` 알고리즘을 사용한다.
+
+<br />
+
+### 가상 DOM 비교 과정
+
+실제로 아래 컴포넌트를 재조정 알고리즘을 통해 렌더링한다고 가정하면 아래와 같은 그림으로 나타낼 수 있다.
+
+```jsx
+function Main() {
+  return (
+    <main style={{ backgroundColor: 'red' }}>
+      <h1 className="title">Title</h1>
+      <Content>
+        <span>Some Content</span>
+        // ..
+      </Content>
+      <Footer ... />
+    </main>
+  );
+}
+```
+
+컴포넌트 트리를 순회하면서 `JSX`를 변환하여 가상 `DOM` 을 생성한다.
+
+<img src="/posts/생각해보기/key값으로 인덱스를 넣으면 안되는 이유/4.png" />
+
+생성된 가상 `DOM` 트리의 예시는 아래와 같다.
+
+```jsx
+const virtualDOM = {
+  type: "main", // 요소의 타입
+  props: {
+    style: { backgroundColor: "red" }, // 요소의 속성
+    // ..
+  },
+  children: [
+    {
+      type: "h1",
+      props: {
+        className: "title",
+      },
+      children: ["Title"],
+      // ..
+    },
+    {
+      type: Content, // 해당 컴포넌트의 함수 또는 클래스
+      // ..
+    },
+    {
+      type: Footer,
+      // ..
+    },
+  ],
+  // ..
+};
+```
+
+이 가상 `DOM`을 사용해 모든 컴포넌트와 데이터가 반영된 실제 `DOM`을 생성한다.
+
+사용자의 상호작용이 발생하면, 이전의 가상 `DOM`과 새로 생성된 가상 `DOM`을 비교하며 어떤 요소가 추가되었는지, 변경되었는지를 판단한다.
+
+이때 변경된 `DOM` 요소의 타입이 다른 경우와 같은 경우는 다르게 동작한다.
+
+<br />
+
+## `DOM` 요소의 타입이 다른 경우
+
+(요소의 타입 = `JSX` 태그의 종류)
+
+<aside>
+
+재조정 과정에서 두 `DOM` 트리의 타입이 다르면 이전 트리를 버리고 새로운 트리 생성
+
+</aside>
+
+```jsx
+function Component() {
+  const [isLarge, setIsLarge] = useState(false);
+  return (
+    <>
+      {isLarge ? (
+        <h1 className="largeTitle">Welcome</h1> // type : 'h1'
+      ) : (
+        <h3 className="smallTitle">Welcome</h3> // type : 'h3'
+      )}
+    </>
+  );
+}
+```
+
+(1) 초기에 `isLarge`가 `false`이므로 `<h3 className="smallTitle">Welcome</h3>`가 렌더링
+
+(2) 만약 상태가 변경되어 `isLarge`가 `true`로 바뀌면 React는 다시 렌더링
+
+(3) 이전에는 `h3` 요소가 있었지만, 새 렌더링에서는 `h1` 요소가 필요함
+
+(4) `React`는 이 두 요소를 비교할 때 **요소의 타입**을 먼저 확인함
+
+(5) `h3`과 `h1`은 다른 타입이므로, `React`는 이전 `DOM` 노드(`h3`)를 완전히 제거하고, 새로운 `DOM` 노드(`h1`)를 처음부터 생성
+
+(6) 이 과정에서 `h3` 요소와 관련된 모든 DOM 구조, 이벤트 리스너, 내부 상태 등이 파괴되고, 새로운 `h1` 요소가 생성
+
+<br />
+
+## `DOM` 요소의 타입이 같은 경우
+
+<aside>
+
+두 요소의 속성을 비교하고 변경된 속성이 있으면 해당 속성들만 업데이트
+
+</aside>
+
+```jsx
+// 상태 변경 전 가상 DOM 노드
+{
+  type: 'div',
+  props: {
+    className: 'container-large',
+    style: {padding: '20px', border: '1px solid black'},
+  }
+}
+
+// 상태 변경 후 가상 DOM 노드
+{
+  type: 'div',
+  props: {
+    className: 'container-small',
+    style: {padding: '20px', border: '1px solid green'},
+  }
+}
+```
+
+여기서는 요소의 타입이 둘 다 `div`라서 전체를 파괴하지 않고 `className`과 `style`만 업데이트 한다.
+
+<br />
+
+## 컴포넌트 타입이 같은 경우
+
+<aside>
+
+최소한의 변경 사항만 실제 `DOM`에 반영하기 위해 컴포넌트의 `props`만 새로 업데이트
+
+</aside>
+
+```jsx
+function Input({ placeholder }) {
+  const [value, setValue] = React.useState("");
+  return (
+    <input
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => setValue(e.target.value)}
+    />
+  );
+}
+
+function Component() {
+  const [isLarge, setIsLarge] = useState(false);
+  return (
+    <>
+      {isLarge ? (
+        <Input placeholder="안녕하세요" />
+      ) : (
+        <Input placeholder="hello" />
+      )}
+    </>
+  );
+}
+```
+
+이때도 같은 컴포넌트이기 때문에 언마운트되지 않고 `props`만 업데이트된다.
+
+<br />
+
+---
+
+## 자식 요소 처리
+
+```jsx
+// 전
+<ul>
+  <li>첫째</li>
+  <li>둘째</li>
+</ul>
+
+// 후
+<ul>
+  <li>첫째</li>
+  <li>둘째</li>
+  <li>셋째</li> // 추가 => 새로운 요소로 판단 => 실제 DOM에 추가
+</ul>
+```
+
+새로운 요소만 추가되기 때문에 성능상 효율적인 `DOM` 업데이트를 수행한다.
+
+```jsx
+// 전
+<ul>
+  <li>첫째</li>
+  <li>둘째</li>
+</ul>
+
+// 후
+<ul>
+  <li>셋째</li> // 추가
+  <li>첫째</li>
+  <li>둘째</li>
+</ul>
+```
+
+만약 새로운 요소가 첫 번째 자식으로 추가된다면, 3개의 자식 모두가 업데이트 대상이 되어 3개의 자식 모두의 실제 `DOM`을 업데이트하게 된다.
+
+하지만 첫째, 둘째 `li` 태그는 실제 `DOM`에 굳이 업데이트 할 필요가 없다.
+
+따라서 우리는 리액트에게 새로운 가상 `DOM` 트리에서 `DOM` 노드가 변하지 않았다는 것을 알려줄 필요가 있다.
+
+<br />
+
+---
+
+## 재조정과 key
+
+위와 같은 문제가 있기 때문에 `key`가 필요하다.
+
+- `map`으로 배열을 순회하다 보면 다음 렌더에서 이전 리스트가 어떻게 바뀔지 알지 못한다.
+- 따라서 `key`라는 고유한 값을 제공해서 재조정 과정에서 효율적으로 비교하고 변한 부분만 실제 `DOM`에 반영할 수 있도록 하는 것이다.
+
+<br />
+
+`key`는 각 노드를 식별 가능하도록 해야하기 때문에 고유한 값을 주어야 한다.
+
+```jsx
+{
+  data.map((data) => <Item key={data.uniqueKey} data={data} />);
+}
+```
+
+특정 타입과 `key`값을 갖는 요소의 경우 다음 렌더에서도 동일한 타입과 `key`를 갖는다면 최소한의 변경만 수행하도록 한다. 이제 자식 요소의 순서가 바뀌더라도 렌더 간 요소를 재사용하게 되는 것이다.
+
+예를 들어 현재 `VDOM`을 확인할 때 2번째 위치에 있는 `key` 속성의 값이 1인 `Item`은 이전 `VDOM`에 존재하기 떄문에 새롭게 만드는 것이 아니라 재사용하게 되는 것이다.
+
+<br />
+
+## index를 key로 사용하게 될 경우 생기는 문제점
+
+> **key는 형제 간에 고유해야 합니다.**
+
+(in 리액트 공식 문서)
+
+<br />
+
+**문제점**
+
+배열의 내용이 변경될 때 우리 의도와 다르게 재조정이 이루어지게 된다.
+
+<br />
+
+**예시**
+
+```jsx
+const items = ["apple", "banana", "orange"];
+items.map((fruit, index) => <li key={index}>{fruit}</li>);
+// [apple: 0, banana: 1, orange: 2]
+```
+
+<br />
+
+**첫 번째 원소를 추가한다면?**
+
+```jsx
+const items = ["mango", "apple", "banana", "orange"];
+```
+
+```jsx
+key=0: <li>mango</li>
+key=1: <li>apple</li>
+key=2: <li>banana</li>
+key=3: <li>orange</li>
+```
+
+- `key=0`인 요소는 여전히 존재하지만, 내용이 `apple`에서 `mango`로 변경
+- `key=1`인 요소는 내용이 `banana`에서 `apple`로 변경
+- `key=2`인 요소는 내용이 `orange`에서 `banana`로 변경
+- `key=3`이라는 새로운 요소가 생성되어 `orange`를 표시
+
+⇒ 즉, 모든 `key`값이 바뀌게 되면 재조정 과정에서 모든 요소들을 새로운 요소로 간주하고 실제 `DOM`에 업데이트
+
+<br />
+
+**고유한 `ID`를 `key`로 사용했다면?**
+
+```jsx
+items.map((fruit, index) => <li key={fruit}>{fruit}</li>);
+```
+
+```jsx
+key="mango": <li>mango</li>  // 새 요소 추가
+key="apple": <li>apple</li>  // 기존 요소 재활용
+key="banana": <li>banana</li> // 기존 요소 재활용
+key="orange": <li>orange</li> // 기존 요소 재활용
+```
+
+⇒ 모든 노드를 재활용하고 `mango` 노드만 새로 추가
+
+<br />
+
+**`index`를 사용해도 괜찮을 때**
+
+(1) 리스트의 요소가 정적이고 변하지 않을 때
+
+(2) 리스트 순서가 바뀌지 않을 때
+
+(3) 리스트의 요소가 상태를 가지고 있지 않을 때
+
+---
+
+# 정리
+
+(1) 리스트에 있는 각각의 자식은 `key` 프로퍼티를 가져야 한다.
+
+(2) `key`는 어떤 요소에 해당하는지 `React`에 알려주는 역할을 한다.
+
+(3) `map`으로 배열을 순회하다 보면 다음 렌더에서 이전 리스트가 어떻게 바뀔지 알지 못하기 때문에 `key`라는 고유한 값을 제공해서 재조정 과정에서 효율적으로 비교하고 변한 부분만 실제 `DOM`에 반영해야 한다.
+
+(4) `index`를 `key`로 사용하게 될 경우에는 배열의 내용이 변경될 때, 우리의 의도와는 다르게 재조정이 발생한다. 따라서 식별 가능한 고유 `ID`를 사용해야 한다.
+
+<br />
+
+## 참고
+
+[https://ko.legacy.reactjs.org/docs/reconciliation.html](https://ko.legacy.reactjs.org/docs/reconciliation.html)
+
+[https://www.moonkorea.dev/React-%EB%A0%8C%EB%8D%94%EB%A7%81-%EC%9E%AC%EC%A1%B0%EC%A0%95%EA%B3%BC-key](https://www.moonkorea.dev/React-%EB%A0%8C%EB%8D%94%EB%A7%81-%EC%9E%AC%EC%A1%B0%EC%A0%95%EA%B3%BC-key)
