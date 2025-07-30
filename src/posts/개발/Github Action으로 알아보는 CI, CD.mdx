@@ -1,0 +1,412 @@
+---
+title: "Github Action으로 알아보는 CI, CD"
+date: 2025-07-30
+desc: 커피빵 프로젝트를 진행하며 CI/CD를 학습한 내용을 작성했습니다.
+thumbnail: /posts/개발/3/image.png
+---
+
+## 들어가며
+
+### CI/CD가 왜 필요할까?
+
+로컬에서는 잘 됐는데요..
+
+개발자라면 한 번쯤 들어봤을 법한 이 말이다. 여러 개발자가 함께 작업하는 프로젝트에서 이런 상황은 일상다반사다. 각자의 환경에서는 완벽하게 돌아가던 코드가 합쳐지는 순간 예상치 못한 오류가 발생한다.
+
+### 전통적인 개발 방식의 한계
+
+과거의 개발 방식을 떠올려보자.
+
+```
+개발자 A: 로그인 기능 개발 (1주)
+개발자 B: 회원가입 기능 개발 (1주)
+개발자 C: 프로필 기능 개발 (1주)
+
+1주 후 코드 통합...
+❌ 충돌 발생
+❌ 빌드 실패
+❌ 테스트 깨짐
+❌ 하루 종일 충돌 해결...
+
+```
+
+이런 통합 지옥을 경험해본 개발자라면 CI/CD의 필요성을 절감할 것이다.
+
+### 현대적인 개발 워크플로우의 필요성
+
+현대의 웹 개발은 빠른 속도와 높은 품질을 동시에 요구한다. 사용자들은 버그 없는 서비스를 원하지만, 동시에 새로운 기능도 빠르게 출시되기를 기대한다. 이런 상충하는 요구사항을 해결하기 위해 등장한 것이 바로 **CI/CD**다.
+
+## CI/CD 기본 개념 이해하기
+
+### CI (Continuous Integration)란?
+
+- \*지속적 통합(CI)\*\*은 개발자들이 작성한 코드를 자주, 그리고 자동으로 통합하는 개발 방식이다. 단순히 코드를 합치는 것이 아니라, 코드 품질 검사, 테스트 실행, 빌드 확인까지 자동으로 수행한다.
+
+### CI 없이 개발할 때의 문제점들
+
+**1. 코드 통합 지옥 🔥**
+각자 다른 방향으로 개발하다가 마지막에 합치려니 엄청난 충돌이 발생한다. 때로는 충돌 해결에 개발 시간보다 더 오랜 시간이 걸리기도 했다.
+
+**2. 늦은 버그 발견**
+
+```tsx
+// 이런 실수를 2주 후에 발견한다면?
+function calculateTotal(price: number, tax: number) {
+  return price + tax * 100; // 실수: tax를 100배 곱함
+}
+```
+
+배포 직전에 발견된 버그는 팀 전체를 패닉 상태로 만든다.
+
+**3. 일관성 없는 코드 품질**
+
+```
+개발자 A: ESLint 사용 ✅
+개발자 B: ESLint 무시 ❌
+개발자 C: 자기만의 스타일 ❌
+
+결과: 코드 스타일이 제각각, 유지보수 어려움
+
+```
+
+### CI 도입 시 얻는 이점들
+
+**1. 즉시 피드백 ⚡**
+
+```
+개발자가 PR 생성
+→ 2분 후 CI 실행 완료
+✅ 빌드 성공
+✅ 테스트 통과
+✅ 코드 품질 OK
+→ 안전하게 병합 가능
+
+```
+
+**2. 자동화된 품질 관리**
+사람이 놓칠 수 있는 실수들을 자동으로 잡아낸다.
+
+**3. 팀 전체의 생산성 향상**
+
+```
+Before CI:
+- 수동 테스트: 30분
+- 빌드 확인: 10분
+- 코드 리뷰: 20분
+총 1시간/PR
+
+After CI:
+- 자동 검증: 3분
+- 코드 리뷰만: 15분
+총 18분/PR
+
+```
+
+### CD (Continuous Deployment)란?
+
+- 지속적 배포(CD)는 CI를 통과한 코드를 자동으로 프로덕션 환경에 배포하는 과정이다. 더 이상 수동으로 서버에 접속해서 파일을 복사하고, 서비스를 재시작할 필요가 없다.
+
+### 수동 배포 vs 자동 배포
+
+**수동 배포의 문제점:**
+
+```bash
+# 개발자가 직접 해야 할 일들
+ssh user@server
+git pull origin main
+npm install
+npm run build
+pm2 restart app
+# 실수하기 쉽고, 시간도 오래 걸림
+
+```
+
+**자동 배포의 장점:**
+
+- 휴먼 에러 제거
+- 일관된 배포 프로세스
+- 빠른 배포 속도
+- 언제든 롤백 가능
+
+## GitHub Actions 기초
+
+### GitHub Actions란?
+
+GitHub Actions는 GitHub에서 제공하는 CI/CD 플랫폼이다. 리포지토리에 특정 이벤트가 발생하면 (예: 코드 푸시, PR 생성) 자동으로 워크플로우를 실행한다.
+
+### 핵심 구성 요소
+
+**워크플로우 (Workflow)**
+실행할 작업들의 집합이다. `.github/workflows/` 폴더의 YAML 파일로 정의한다.
+
+**러너 (Runner) 환경 이해하기**
+
+러너는 워크플로우가 **실제로 실행되는 컴퓨터**다.
+
+**GitHub-hosted 러너:**
+
+```yaml
+runs-on: ubuntu-latest # GitHub이 제공하는 서버
+```
+
+- 매번 새로운 깨끗한 환경
+- 무료 제한 있음 (월 2000분)
+- 관리 불필요
+
+**Self-hosted 러너:**
+
+```yaml
+runs-on: [self-hosted, Linux, ARM64] # 직접 관리하는 서버
+```
+
+- 지속적으로 사용되는 환경
+- 무제한 사용 가능
+- 직접 관리 필요
+
+## 프론트엔드 CI 구축하기
+
+### CI 워크플로우 설계
+
+우리의 CI는 다음과 같은 상황에서 실행되어야 했다.
+
+- PR이 생성되거나 업데이트될 때
+- 코드가 메인 브랜치에 푸시될 때
+- 프론트엔드 폴더에 변경사항이 있을 때만
+
+### CI 파이프라인 단계별 분석
+
+실제 사용한 CI 워크플로우 파일이다.
+
+```yaml
+name: Frontend CI
+
+on:
+  pull_request:
+    branches: [fe/dev, fe/prod]
+    paths: ["frontend/**"]
+  push:
+    branches: [fe/dev, fe/prod]
+    paths: ["frontend/**"]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      # 1. 코드 체크아웃
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Node.js 환경 설정
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: "./frontend/package-lock.json"
+
+      # 3. 의존성 설치
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. 코드 품질 검사
+      - name: Run ESLint
+        run: npm run lint
+        continue-on-error: false
+
+      # 5. 테스트 실행
+      - name: Run Tests
+        run: npm run test:jest
+        env:
+          CI: true
+
+      # 6. 빌드 및 아티팩트 생성
+      - name: Run Build
+        id: build
+        run: |
+          npm run build
+          echo "success=true" >> $GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: ./frontend/dist
+          retention-days: 1
+```
+
+**1단계 - 코드 체크아웃:** GitHub 리포지토리의 코드를 러너로 다운로드했다.
+
+**2단계 - Node.js 환경 설정:** 프론트엔드 빌드에 필요한 Node.js를 설치하고 npm 캐시를 설정했다.
+
+**3단계 - 의존성 설치:** `npm ci`로 정확한 버전의 패키지들을 설치했다.
+
+**4단계 - 코드 품질 검사:** ESLint로 코드 스타일과 잠재적 오류를 검사했다.
+
+**5단계 - 테스트 실행:** Jest 테스트를 실행하여 기능이 올바르게 동작하는지 확인했다.
+
+**6단계 - 빌드:** 프로덕션용 빌드를 생성하고 결과물을 아티팩트로 저장했다.
+
+### 재사용 가능한 워크플로우 만들기
+
+`workflow_call`을 사용하면 다른 워크플로우에서 재사용할 수 있다.
+
+```yaml
+on:
+  workflow_call:
+    outputs:
+      build-success:
+        description: "Build completion status"
+        value: ${{ jobs.ci.outputs.build-success }}
+```
+
+이렇게 하면 CD 워크플로우에서 CI를 호출할 수 있다.
+
+## 프론트엔드 CD 구축하기
+
+### 안전한 배포 전략
+
+배포는 신중해야 했다. 잘못된 배포는 서비스 전체를 마비시킬 수 있기 때문이다. 우리의 CD 전략은 다음과 같았다.
+
+1. **PR이 실제로 병합되었을 때만 배포**
+2. **CI가 성공했을 때만 배포**
+3. **동시 배포 방지**
+
+### AWS 기반 배포 파이프라인
+
+실제 프로젝트에서 사용한 CD 워크플로우 파일이다.
+
+```yaml
+name: Frontend CD
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [fe/prod]
+    paths: ["frontend/**"]
+
+env:
+  FE_PROD_PATH: fe-prod
+  FE_CACHE_PATH: /*
+
+jobs:
+  ci:
+    if: github.event.pull_request.merged == true
+    uses: ./.github/workflows/frontend-ci.yml
+
+  cd:
+    needs: ci
+    if: github.event.pull_request.merged == true && needs.ci.result == 'success'
+    runs-on: [self-hosted, Linux, ARM64]
+
+    concurrency:
+      group: ${{ github.workflow }}
+      cancel-in-progress: true
+
+    steps:
+      # 1. 이전 버전 정리
+      - name: Remove previous version app
+        run: rm -rf frontend/
+
+      # 2. 빌드 아티팩트 다운로드
+      - name: Download the built file from CI
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend
+        timeout-minutes: 5
+
+      # 3. S3 업로드
+      - name: Upload to S3
+        run: |
+          aws s3 sync frontend s3://techcourse-project-2025/coffee-shout/fe-prod/ --delete
+
+      # 4. CloudFront 캐시 무효화
+      - name: CloudFront invalidation
+        run: |
+          aws cloudfront create-invalidation \
+                --distribution-id ${{ secrets.AWS_DISTRIBUTION_ID }} \
+                --paths "/*"
+```
+
+**1단계 - 이전 버전 정리:** Self-hosted 러너에서는 이전 실행의 파일들이 남아있을 수 있어 정리가 필요했다.
+
+**2단계 - 빌드 아티팩트 다운로드:** CI에서 생성한 빌드 결과물을 다운로드했다.
+
+**3단계 - S3 업로드:** 정적 파일들을 AWS S3에 업로드했다. `--delete` 옵션으로 불필요한 파일들을 제거했다.
+
+**4단계 - CloudFront 캐시 무효화:** CDN 캐시를 무효화하여 사용자들이 즉시 새 버전을 볼 수 있게 했다.
+
+### Self-hosted 러너 활용하기
+
+Self-hosted 러너를 사용한 이유는 다음과 같았다.
+
+- **무제한 실행:** GitHub-hosted 러너의 시간 제한 없음
+- **네트워크 접근:** 사내 네트워크나 AWS 리소스에 직접 접근 가능
+- **성능:** 원하는 스펙으로 설정 가능
+
+하지만 주의할 점도 있었다.
+
+- **환경 정리 필요:** `rm -rf frontend/` 같은 정리 작업이 필요
+- **보안 관리:** 직접 보안을 관리해야 함
+- **유지보수:** 서버 관리 책임
+
+## 실제 개발 워크플로우
+
+### 개발부터 배포까지의 여정
+
+실제 개발 과정은 다음과 같았다.
+
+```
+1. 개발자가 기능 브랜치에서 코드 작성
+2. fe/dev 브랜치로 PR 생성
+3. CI 자동 실행 (린트, 테스트, 빌드)
+4. 코드 리뷰 및 승인
+5. fe/dev 브랜치에 병합
+6. 테스트 환경에서 검증
+7. fe/prod 브랜치로 PR 생성
+8. 다시 CI 실행
+9. 리뷰 후 fe/prod에 병합
+10. CD 자동 실행으로 프로덕션 배포
+```
+
+### 브랜치 전략과 CI/CD 연동
+
+우리가 사용한 브랜치 전략은 다음과 같았다.
+
+- `fe/dev`: 개발 환경 배포용
+- `fe/prod`: 프로덕션 환경 배포용
+
+각 브랜치에 맞는 CI/CD 파이프라인을 구성하여 환경별로 다른 배포 전략을 적용했다.
+
+## 실제 적용 후기
+
+**개발 생산성**
+
+- 코드 리뷰에 집중할 수 있게 되었다. (품질 검사는 CI가 담당)
+- 배포 두려움이 해소되었다. (자동화된 검증 과정)
+- 빠른 피드백으로 버그를 조기에 발견했다.
+
+**배포 실패율 감소**
+
+**팀 협업 개선 효과**
+
+- 일관된 코드 품질을 유지했다.
+
+## 마무리
+
+CI/CD는 현대 개발의 필수 요소다. 처음에는 복잡해 보일 수 있지만, 한 번 구축하고 나면 개발 생산성과 서비스 품질이 크게 향상된다.
+
+여러분도 CI/CD의 장점을 직접 경험해보길 바란다. 분명 "이제 CI/CD 없이는 개발할 수 없다"는 생각이 들 것이다.
+
+## 참고 자료
+
+- [GitHub Actions 공식 문서](https://docs.github.com/en/actions)
+- [AWS S3 Static Website Hosting](https://docs.aws.amazon.com/s3/latest/userguide/WebsiteHosting.html)
+- [CloudFront 캐시 무효화](https://docs.aws.amazon.com/cloudfront/latest/developerguide/Invalidation.html)
+
+---
