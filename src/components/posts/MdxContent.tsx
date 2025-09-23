@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import React, { ComponentProps } from "react";
 import { generateHeadingId } from "@/lib/toc";
+import { CodeBlock } from "./CodeBlock";
 
 type ImageProps = ComponentProps<typeof Image>;
 type HTMLProps<T extends keyof React.JSX.IntrinsicElements> =
@@ -126,23 +127,55 @@ const components = {
     );
   },
 
-  pre: ({ children, ...props }: HTMLProps<"pre">) => (
-    <pre
-      className="my-4 overflow-auto rounded-lg bg-gray-100 p-4 text-gray-600 text-sm dark:bg-gray-800 dark:text-gray-300"
-      {...props}
-    >
-      {children}
-    </pre>
-  ),
+  pre: ({ children, ...props }: HTMLProps<"pre">) => {
+    // pre 태그 안에 code 태그가 있는 경우 (코드 블럭)
+    if (React.isValidElement(children)) {
+      const codeElement = children as React.ReactElement<HTMLProps<"code">>;
+      const codeClassName = codeElement.props.className;
 
-  code: ({ children, ...props }: HTMLProps<"code">) => (
-    <code
-      className="rounded bg-gray-100 px-1 py-0.5 dark:bg-gray-800"
-      {...props}
-    >
-      {children}
-    </code>
-  ),
+      // language- 클래스가 있으면 코드 블럭으로 처리
+      if (codeClassName && codeClassName.includes("language-")) {
+        return (
+          <CodeBlock className={codeClassName} {...props}>
+            {codeElement.props.children as string}
+          </CodeBlock>
+        );
+      }
+    }
+
+    // 일반 pre 태그
+    return (
+      <pre
+        className="my-4 overflow-auto rounded-lg bg-gray-100 p-4 text-gray-600 text-sm dark:bg-gray-800 dark:text-gray-300"
+        {...props}
+      >
+        {children}
+      </pre>
+    );
+  },
+
+  code: ({ children, className, ...props }: HTMLProps<"code">) => {
+    const isCodeBlock = className?.includes("language-");
+
+    if (isCodeBlock) {
+      // 코드 블럭은 pre 컴포넌트에서 처리됨
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    }
+
+    // 인라인 코드
+    return (
+      <code
+        className="rounded bg-gray-100 px-1 py-0.5 text-sm dark:bg-gray-800 dark:text-gray-300"
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
 };
 
 export function MdxContent({ source }: { source: string }) {
