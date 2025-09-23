@@ -2,6 +2,7 @@ import { MDXRemote } from "next-mdx-remote/rsc";
 import Image from "next/image";
 import Link from "next/link";
 import React, { ComponentProps } from "react";
+import { generateHeadingId } from "@/lib/toc";
 
 type ImageProps = ComponentProps<typeof Image>;
 type HTMLProps<T extends keyof React.JSX.IntrinsicElements> =
@@ -74,32 +75,56 @@ const components = {
     );
   },
 
-  h1: ({ children, ...props }: HeadingProps) => (
-    <h1 className="relative mb-4 mt-8 text-2xl font-bold group" {...props}>
-      <span className="absolute -left-5 hidden text-gray-400 group-hover:inline">
-        #
-      </span>
-      {children}
-    </h1>
-  ),
+  h1: ({ children, ...props }: HeadingProps) => {
+    const text = typeof children === "string" ? children : "";
+    const id = generateHeadingId(text);
+    return (
+      <h1
+        id={id}
+        className="relative mb-4 mt-8 text-2xl font-bold group"
+        {...props}
+      >
+        <span className="absolute -left-5 hidden text-gray-400 group-hover:inline">
+          #
+        </span>
+        {children}
+      </h1>
+    );
+  },
 
-  h2: ({ children, ...props }: HeadingProps) => (
-    <h2 className="relative mb-4 mt-8 text-xl font-bold group" {...props}>
-      <span className="absolute -left-4 hidden text-gray-400 group-hover:inline">
-        #
-      </span>
-      {children}
-    </h2>
-  ),
+  h2: ({ children, ...props }: HeadingProps) => {
+    const text = typeof children === "string" ? children : "";
+    const id = generateHeadingId(text);
+    return (
+      <h2
+        id={id}
+        className="relative mb-4 mt-8 text-xl font-bold group"
+        {...props}
+      >
+        <span className="absolute -left-4 hidden text-gray-400 group-hover:inline">
+          #
+        </span>
+        {children}
+      </h2>
+    );
+  },
 
-  h3: ({ children, ...props }: HeadingProps) => (
-    <h3 className="relative mb-4 mt-6 text-lg font-bold group" {...props}>
-      <span className="absolute -left-4 hidden text-gray-400 group-hover:inline">
-        #
-      </span>
-      {children}
-    </h3>
-  ),
+  h3: ({ children, ...props }: HeadingProps) => {
+    const text = typeof children === "string" ? children : "";
+    const id = generateHeadingId(text);
+    return (
+      <h3
+        id={id}
+        className="relative mb-4 mt-6 text-lg font-bold group"
+        {...props}
+      >
+        <span className="absolute -left-4 hidden text-gray-400 group-hover:inline">
+          #
+        </span>
+        {children}
+      </h3>
+    );
+  },
 
   pre: ({ children, ...props }: HTMLProps<"pre">) => (
     <pre
