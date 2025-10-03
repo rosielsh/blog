@@ -63,14 +63,24 @@ const components = {
 
     if (isInternalLink) {
       return (
-        <Link href={href} {...props}>
+        <Link
+          href={href}
+          className="text-blue-600 hover:text-blue-800 underline decoration-blue-300 hover:decoration-blue-500 transition-colors duration-200 dark:text-blue-400 dark:hover:text-blue-300 dark:decoration-blue-500 dark:hover:decoration-blue-400"
+          {...props}
+        >
           {children}
         </Link>
       );
     }
 
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:text-blue-800 underline decoration-blue-300 hover:decoration-blue-500 transition-colors duration-200 dark:text-blue-400 dark:hover:text-blue-300 dark:decoration-blue-500 dark:hover:decoration-blue-400"
+        {...props}
+      >
         {children}
       </a>
     );
