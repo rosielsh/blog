@@ -1,0 +1,662 @@
+---
+title: "반복되는 API 호출 코드를 어떻게 정리하면 좋을까: useFetch 커스텀 훅 제작기"
+date: 2025-09-27
+desc: 커피빵 서비스에 흩어진 데이터 패칭 로직을 커스텀 훅으로 추상화하는 과정에서의 설계 고민과 과정을 기록했습니다.
+thumbnail: /posts/커피빵/2.png
+---
+
+# 목차
+
+---
+
+# 들어가며
+
+현재 **커피빵**이라는 프로젝트를 진행하면서, 여러 컴포넌트에서 데이터를 가져오는 코드를 보며 개선할 점을 발견했습니다.
+
+미니게임 리스트를 가져오는 요청, 참여코드의 유효성을 확인하는 요청, 선택된 미니게임을 조회하는 요청 등에서 모두 비슷한 패턴의 코드가 작성되어 있었던 것이었는데요.
+
+이런 중복을 줄이고 **일관된 데이터 패칭 로직**을 구축하기 위해, 모든 `GET` 메서드에 대한 API 요청을 한 곳에서 관리할 수 있는 **커스텀 훅**을 만들기로 결정했습니다.
+
+<br />
+
+# 문제 상황
+
+### 커피빵 프로젝트에서 발견한 중복 코드들
+
+현재 프로젝트에서 `GET` 요청을 보내고 처리하는 코드들을 살펴보겠습니다.
+
+<br />
+
+1\. 미니게임 리스트를 받아오는 코드
+
+```tsx
+const [loading, setLoading] = useState(true);
+const [error, setError] = useState<string | null>(null);
+const { playerType } = usePlayerType();
+
+useEffect(() => {
+  (async () => {
+    try {
+      setLoading(true);
+      const _miniGames = await api.get<MiniGameType[]>("/rooms/minigame");
+      setMiniGames(_miniGames);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setError(error.message);
+      } else if (error instanceof NetworkError) {
+        setError("네트워크 연결을 확인해주세요");
+      } else {
+        setError("알 수 없는 오류가 발생했습니다");
+      }
+    } finally {
+      setLoading(false);
+    }
+  })();
+}, []);
+```
+
+<br />
+
+2\. 현재 `joinCode`가 유효한지 확인하는 코드
+
+```jsx
+try {
+  const { exist } =
+    (await api.get) <
+    { exist: boolean } >
+    `/rooms/check-joinCode?joinCode=${joinCode}`;
+
+  if (!exist) {
+    navigateToHome("방이 존재하지 않음");
+    return;
+  }
+} catch (error) {
+  console.error("방 존재 여부 체크 실패:", error);
+  navigateToHome("방 존재 여부 체크 실패");
+  return;
+}
+```
+
+3\. 선택된 미니게임을 받아오는 코드
+
+```jsx
+  useEffect(() => {
+    (async () => {
+      if (joinCode) {
+        const _selectedMiniGames = await api.get<MiniGameType[]>(
+          `/rooms/minigames/selected?joinCode=${joinCode}`
+        );
+        setSelectedMiniGames(_selectedMiniGames);
+      }
+    })();
+  }, [joinCode]);
+```
+
+<br />
+
+### 어떤 문제가 있을까요?
+
+코드를 자세히 들여다 보니, 문제점을 두 가지로 정의할 수 있었습니다.
+
+<br />
+
+**1\. 같은 역할을 함에도 다른 처리 방식을 가진다.**
+
+위 세 가지 코드는 모두 `GET` 요청을 통해 데이터를 받아오는 같은 역할을 합니다. 하지만 각각 에러를 처리하는 방식이나 로딩 상태를 관리하는 방식이 제각각이었습니다.
+
+<br />
+
+**2\. 일관성 없는 상태 관리**
+
+모든 API 요청에는 `loading`과 `error` 상태 관리가 필요합니다. 그런데 어떤 곳에서는 이런 상태들이 꼼꼼하게 처리되어 있는 반면, 어떤 곳에서는 아예 빠져있었습니다.
+
+<br />
+
+### 해결 방향
+
+이런 패턴들이 프로젝트 곳곳에서 반복되는 것을 보며, "모든 `GET` 요청의 데이터 패칭 로직을 하나의 커스텀 훅으로 통합하면 어떨까?"라는 생각이 들었습니다.
+
+이번 글에서는 `useFetch`, `useLazyFetch` 훅을 설계하고 구현하는 과정, 그리고 그 과정에서 마주한 고민들을 공유해보려고 합니다.
+
+<br />
+
+---
+
+# 첫 번째 시도: 범용 useFetch 훅
+
+처음에는 모든 `GET` 요청을 처리할 수 있는 범용적인 훅을 만들고자 했습니다.
+
+<br />
+
+### 초기 설계
+
+먼저, 해당 커스텀 훅을 설계하는 과정에서 필요한 `props`를 먼저 설계해 보았습니다.
+
+```tsx
+interface UseFetchOptions<T> {
+  endpoint: string; // API 엔드포인트
+  deps?: any[]; // 의존성 배열 -> 이 값이 변경될 때 재요청하기 위해
+  immediate?: boolean; // 즉시 실행 여부
+  // 에러 핸들러 -> 에러 처리 커스터마이징
+  errorHandler?: {
+    onApiError?: (error: ApiError) => string;
+    onNetworkError?: (error: NetworkError) => string;
+    onUnknownError?: (error: unknown) => string;
+  };
+  // 데이터 패칭 이후, 추가적인 로직이 필요한 경우 사용
+  onSuccess?: (data: T) => void; // 성공 시 핸들러
+  onError?: (error: string) => void; // 실패 시 핸들러
+  enabled?: boolean; // 조건부 실행
+}
+```
+
+이 설계는 다양한 상황을 모두 커버하려고 했지만, 막상 만들고 보니 몇 가지 문제가 보였습니다.
+
+1\. **과도한 옵션**: 대부분의 경우에 사용하지 않는 옵션들이 너무 많음
+
+2\. **복잡성**: 간단한 데이터 패칭에도 많은 설정 필요
+
+3\. **일관성 부족**: 에러 처리 방식이 컴포넌트마다 달라질 수 있음
+
+<br />
+
+한 번만 사용하는 예외 케이스까지 모두 커버하려다 보니, 오히려 `props`가 과도하게 많아진 것이었습니다. 따라서 불필요한 `props`를 제거하도록 이를 개선하기로 했습니다.
+
+<br />
+
+## 첫 번째 개선
+
+에러 처리는 상위 `ErrorBoundary`에 위임하고, 불필요한 옵션들을 제거해서 훨씬 단순하게 만들었습니다.
+
+```tsx
+interface UseFetchOptions {
+  endpoint: string;
+  immediate?: boolean;
+  enabled?: boolean;
+  onSuccess?: (data: T) => void;
+  onError?: (error: string) => void;
+}
+
+interface UseFetchReturn<T> {
+  data: T | null;
+  loading: boolean;
+  refetch: () => Promise<void>;
+}
+```
+
+<br />
+
+## 두 번째 개선 - 너무 많은 책임을 가진 훅
+
+단순화된 버전을 만들고 나니, 또 다른 고민이 생겼습니다. 이 훅이 두 가지 서로 다른 용도로 사용되고 있었기 때문입니다.
+
+<br />
+
+### 두 가지 사용 패턴
+
+**1. 즉시 실행형** - 컴포넌트 렌더링과 함께 데이터 로딩
+
+미니게임 목록처럼 컴포넌트가 렌더링될 때 바로 데이터를 가져와야 하는 경우에 해당합니다.
+
+```tsx
+const { data: miniGames } = useFetch({
+  endpoint: "/rooms/minigame",
+});
+```
+
+<br />
+
+**2. 수동 실행형** - 사용자 액션에 따른 데이터 요청
+
+참여코드가 유효한지 인증하는 `get` 요청과 같은 경우 실제로, 렌더링될 때 호출되는 것이 아니라 버튼을 누르면 `api` 호출이 실행되어야 했습니다.
+
+```tsx
+const { refetch } = useFetch({
+  endpoint: "/rooms/check-joinCode",
+  immediate: false,
+});
+
+const handleClick = () => {
+  refetch();
+};
+```
+
+<br />
+
+### 단일 책임 원칙 vs 범용성
+
+이때 고민이 생겼습니다. 두 가지 사용 패턴을 모두 챙기기에는 너무 많은 책임을 가지고 있다고 생각했습니다.
+
+- **단일 책임**: 각 훅이 하나의 명확한 목적을 가져야 한다.
+- **범용성**: 다양한 케이스를 하나의 훅으로 처리할 수 있어야 한다.
+
+두 방향성 사이에서 고민하다가, 결국 **두 사용 패턴은 본질적으로 다르다**는 결론에 도달했습니다.
+
+하나의 훅에 너무 많은 책임을 부여하는 것보다, 각각의 목적에 맞는 훅으로 분리하는 것이 더 명확하고 유지보수하기 쉬울 것이라 판단했습니다.
+
+<br />
+
+---
+
+# 결론 - 역할에 따른 훅 분리
+
+최종적으로 사용 패턴에 따라 **두 개의 훅으로 분리**하기로 결정했습니다.
+
+1\. **`useFetch`** - 컴포넌트가 렌더링될 때 필요한 데이터를 가져오는 훅
+
+2\. **`useLazyFetch`** - 사용자의 액션에 따라 데이터를 요청하도록 하는 훅
+
+<br />
+
+### 1. useFetch - 자동 데이터 로딩 시 사용
+
+해당 `hook`의 `props`와 반환값을 아래와 같이 설계했습니다.
+
+```tsx
+// props
+type UseFetchOptions<T> = {
+  endpoint: string;
+  enabled?: boolean;
+  onSuccess?: (data: T) => void;
+  onError?: (error: Error) => void;
+};
+
+// return
+type UseFetchReturn<T> = {
+  data: T | undefined;
+  loading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
+};
+```
+
+<br />
+
+### enabled 속성이 필요한 이유
+
+`enabled` 속성을 넣어준 이유는 `React`의 훅 규칙때문인데요.
+
+```tsx
+// 이렇게 할 수 없음 - 조건부 훅 호출
+if (joinCode) {
+  const { data } = useFetch({ endpoint: "/rooms/check" });
+}
+
+// 이렇게 해야 함 - 항상 훅 호출, 조건부 실행
+const { data } = useFetch({
+  endpoint: "/rooms/check",
+  enabled: !!joinCode, // 조건부 실행 옵션 필요 (joinCode가 없으면 실행 안해야함)
+});
+```
+
+이 제약사항 때문에 `enabled` 옵션은 필수적이었습니다.
+
+기존 코드를 보면 이러한 조건부 실행이 필요한 경우가 존재했습니다.
+
+```tsx
+useEffect(() => {
+  (async () => {
+    if (joinCode) {
+      const _selectedMiniGames = await api.get<MiniGameType[]>(
+        `/rooms/minigames/selected?joinCode=${joinCode}`
+      );
+      setSelectedMiniGames(_selectedMiniGames);
+    }
+  })();
+}, [joinCode]);
+```
+
+즉, `enabled` 속성은 **훅은 항상 호출되지만, 실제 API 요청은 조건부로 실행해야 하는** 상황을 위해 추가했습니다.
+
+<br />
+
+### onSuccess, onError 핸들러를 useRef로 관리한 이유
+
+`api` 패칭 과정에서 성공 및 실패 이후에 실행시킬 콜백 함수를 위해 `onSucceess`, `onError`를 추가해 주었는데요. 이를 사용하는 과정에서 무한 요청을 보내게 되었습니다.
+
+아래는 문제가 되는 코드입니다.
+
+```tsx
+const { loading: isLoading } = useFetch<ProbabilityResponse[]>({
+    endpoint: `/rooms/${joinCode}/probabilities`,
+    enabled: !!joinCode,
+    **onSuccess: (data) => {
+      updateCurrentProbabilities(
+        data.map((probability) => ({
+          ...probability,
+          playerColor: colorList[getParticipantColorIndex(probability.playerName)],
+        }))
+      );
+    },**
+  });
+```
+
+`onSuccess`에 인라인 함수를 전달하다 보니, `useFetch` 내부의 `fetchData` 함수에서 의존성으로 참조하는 `onSuccess`가 매 렌더링마다 새로 생성되어 무한 렌더링이 발생했습니다.
+
+```tsx
+const fetchData = useCallback(async () => {
+  if (!enabled) return;
+
+  try {
+    setLoading(true);
+    setError(null);
+    const result = await api.get<T>(endpoint);
+    setData(result);
+    onSuccess(result); // 의존성 배열에 포함
+  } catch (error) {
+    setError(error as Error);
+    onError(error as Error); // 의존성 배열에 포함
+  } finally {
+    setLoading(false);
+  }
+}, [endpoint, enabled, onSuccess, onError]); // 매번 새로운 함수가 생성되어 무한 루프
+```
+
+이 문제를 해결하기 위해 두 가지 방법을 고민했습니다.
+
+1\. 외부에서 `useCallback`으로 콜백을 감싸서 참조 고정
+
+2\. 내부에서 `useRef`로 콜백을 관리
+
+`useFetch`를 사용하는 곳마다 추가적인 코드를 작성하게 하고 싶지 않았기 때문에, **훅 내부에서 `useRef`로 콜백을 관리하는 방식**을 선택했습니다.
+
+<br />
+
+### 최종 useFetch 훅 코드
+
+따라서 최종 `useFetch` 훅의 코드는 아래와 같습니다.
+
+```tsx
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api } from "./api";
+
+type UseFetchOptions<T> = {
+  endpoint: string;
+  enabled?: boolean;
+  onSuccess?: (data: T) => void;
+  onError?: (error: Error) => void;
+};
+
+type UseFetchReturn<T> = {
+  data: T | undefined;
+  loading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
+};
+
+const useFetch = <T,>(options: UseFetchOptions<T>): UseFetchReturn<T> => {
+  const { endpoint, enabled = true, onSuccess, onError } = options;
+
+  const [data, setData] = useState<T | undefined>(undefined);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+
+  const fetchData = useCallback(async () => {
+    if (!enabled) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await api.get<T>(endpoint);
+      setData(result);
+      onSuccessRef.current?.(result);
+    } catch (error) {
+      setError(error as Error);
+      onErrorRef.current?.(error as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [endpoint, enabled]);
+
+  useEffect(() => {
+    if (enabled) {
+      fetchData();
+    }
+  }, [enabled, fetchData]);
+
+  return { data, loading, error, refetch: fetchData };
+};
+
+export default useFetch;
+```
+
+<br />
+
+### 2. useLazyFetch - 사용자의 명시적인 액션에 따라 데이터를 요청
+
+`useLazyFetch`도 `hook`의 `props`와 반환값을 아래와 같이 설계했습니다.
+
+```tsx
+// props
+type UseLazyFetchOptions<T> = {
+  endpoint: string;
+  onSuccess?: (data: T) => void;
+  onError?: (error: Error) => void;
+};
+
+// return
+type UseLazyFetchReturn<T> = {
+  data: T | undefined;
+  loading: boolean;
+  error: Error | null;
+  execute: () => Promise<T>;
+};
+```
+
+`useFetch`와의 가장 큰 차이점은 `execute` 함수를 통해 명시적으로 데이터를 요청한다는 점입니다. 또한 `enabled` 속성이 필요 없습니다. 자동 실행이 아니라 사용자가 직접 `execute`를 호출하기 때문입니다.
+
+<br />
+
+### 최종 useLazyFetch 훅 코드
+
+```tsx
+import { useCallback, useRef, useState } from "react";
+import { api } from "./api";
+
+type UseLazyFetchOptions<T> = {
+  endpoint: string;
+  onSuccess?: (data: T) => void;
+  onError?: (error: Error) => void;
+};
+
+type UseLazyFetchReturn<T> = {
+  data: T | undefined;
+  loading: boolean;
+  error: Error | null;
+  execute: () => Promise<T>;
+};
+
+const useLazyFetch = <T,>(
+  options: UseLazyFetchOptions<T>
+): UseLazyFetchReturn<T> => {
+  const { endpoint, onSuccess, onError } = options;
+
+  const [data, setData] = useState<T | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+
+  const execute = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await api.get<T>(endpoint);
+      setData(result);
+      onSuccessRef.current?.(result);
+      return result;
+    } catch (error) {
+      setError(error as Error);
+      onErrorRef.current?.(error as Error);
+    } finally {
+      setLoading(false);
+    }
+  }, [endpoint]);
+
+  if (error) throw error;
+
+  return { data, loading, error, execute };
+};
+
+export default useLazyFetch;
+```
+
+<br />
+
+# 개선 결과
+
+### 1. 코드의 중복을 제거
+
+기존에는 매번 데이터를 가져오는 곳 마다 아래의 보일러 플레이트 코드를 작성해야 했습니다.
+
+```tsx
+const [participants, setParticipants] = useState([]);
+const [loading1, setLoading1] = useState(false);
+const [error1, setError1] = useState(null);
+
+useEffect(() => {
+  (async () => {
+    try {
+      setLoading1(true);
+      const data = await api.get("/participants");
+      setParticipants(data);
+    } catch (err) {
+      setError1(err);
+    } finally {
+      setLoading1(false);
+    }
+  })();
+}, []);
+```
+
+하지만 모든 데이터 패칭 로직이 두 개의 훅으로 통합되어, 반복적인 `useState`, `useEffect`, `try-catch` 코드가 사라졌고, 단 한줄의 호출문으로 개선할 수 있었습니다.
+
+<br />
+
+```tsx
+// 참가자 목록 조회
+const {
+  data: participants,
+  loading,
+  error,
+} = useFetch({ endpoint: "/participants" });
+
+// 게임 정보 조회
+const {
+  data: gameInfo,
+  loading: gameLoading,
+  error: gameError,
+} = useFetch({ endpoint: "/game-info" });
+```
+
+이를 통해 프로젝트 전체에서 약 **200줄 이상의 중복 코드를 제거**할 수 있었습니다.
+
+<br />
+
+### 2. 일관된 에러 처리
+
+기존에는 에러를 처리하는 방식이 제각각이었습니다.
+
+```tsx
+// 컴포넌트 A - 상세한 에러 처리
+catch (error) {
+  if (error instanceof ApiError) {
+    setError(error.message);
+  } else if (error instanceof NetworkError) {
+    setError('네트워크 연결을 확인해주세요');
+  } else {
+    setError('알 수 없는 오류가 발생했습니다');
+  }
+}
+
+// 컴포넌트 B - 간단한 에러 처리
+catch (error) {
+  console.error('에러 발생:', error);
+}
+
+// 컴포넌트 C - 에러 처리 없음
+const data = await api.get('/endpoint');
+// 에러가 발생하면 앱이 깨짐
+```
+
+하지만, `useFetch`를 적용한 이후, 모든 `API` 요청에서 `error` 상태가 일관되게 관리되었습니다.
+
+더 이상 어떤 컴포넌트에서는 에러 처리가 있고, 어떤 곳에서는 없는 상황이 발생하지 않게 되었습니다.
+
+<br />
+
+### 3. 명확한 사용 패턴
+
+```tsx
+// 페이지 로드 시 자동으로 데이터 필요 → useFetch
+const { data: userProfile } = useFetch({
+  endpoint: "/user/profile",
+});
+
+// 조건부로 데이터 필요 → useFetch with enabled
+const { data: roomInfo } = useFetch({
+  endpoint: "/rooms/info",
+  enabled: !!joinCode, // joinCode가 있을 때만
+});
+
+// 버튼 클릭이나 폼 제출 시 데이터 필요 → useLazyFetch
+const { execute: submitForm, loading } = useLazyFetch({
+  endpoint: "/form/submit",
+});
+
+const handleSubmit = async () => {
+  await submitForm();
+};
+```
+
+컴포넌트가 마운트 될 때 데이터 패칭이 필요하다면 `useFetch`, 사용자의 액션에 의해 패칭이 필요하다면 `useLazyFetch`를 사용하도록, 2개의 훅의 역할이 명확하게 분리되어 있어 어떤 상황에서 어떤 훅을 사용해야 할 지 고민할 필요가 없게 되었습니다.
+
+또한, 훅 이름만 봐도 언제 사용하는지 직관적으로 알 수 있게 되었습니다.
+
+<br />
+
+### 4. 유지보수성 향상
+
+데이터 패칭 로직을 수정해야 할 때, 모든 컴포넌트를 찾아다니면서 일일이 수정할 필요가 없이, 두 개의 훅만 수정하면 됩니다.
+
+<br />
+
+---
+
+# 마치며
+
+아래는 커스텀 훅을 설계하고 적용하며 깨달은 점들입니다.
+
+<br />
+
+1\. **추상화는 점진적으로 하는 것이 중요함**
+
+처음부터 완벽한 범용적인 훅을 만들려고 하면, 오히려 복잡해집니다. 실제 사용 사례를 먼저 파악하고, 공통점을 찾아 점진적으로 추상화하는 것이 중요하다는 것을 깨달았습니다.
+
+2\. **단일 책임 원칙**
+
+하나의 훅이 여러 역할을 하려고 하면, 오히려 사용하기 어려워집니다. 이럴 때는 각각의 목적에 맞는 훅으로 쪼개는 것이 더 유용합니다.
+
+3\. **사용자 경험**
+
+`useRef`로 콜백을 관리한 것 처럼, 훅을 만들 때 훅을 사용하는 개발자의 경험을 더 우선적으로 고려해야겠다는 생각을 할 수 있었습니다. **내부 구현이 조금 복잡해지더라도, 외부에서 사용하는 것이 간편한 것이 좋은 설계이지 않을까?** 라는 생각을 할 수 있었습니다.
+
+<br />
+
+# 앞으로의 계획
+
+현재는 `GET` 요청만 다루고 있지만, `POST`, `PUT`, `DELETE` 요청을 처리하는 훅도 비슷한 방식으로 만들어볼 계획입니다. 또한 캐싱, 낙관적 업데이트 같은 고급 기능들도 필요하다면 추가해보려고 합니다.
+
+처음에는 단순히 **중복 코드를 줄이자**는 생각으로 시작했지만, 설계 과정에서 많은 것을 배울 수 있었습니다.
+
+여러분의 프로젝트에서도 반복되는 패턴을 발견한다면, 이런 식으로 하나씩 개선해보시는 것을 추천드립니다!
+
+실제 커피빵 서비스에 적용한 내용은 아래 `PR`에서 볼 수 있습니다.
+
+[커피빵 PR 보러가기](https://github.com/woowacourse-teams/2025-coffee-shout/pull/797)
+
+감사합니다.
