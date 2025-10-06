@@ -524,12 +524,9 @@ paths: -"frontend/**/*.stories.*" - "frontend/.storybook/**";
 
 ```tsx
 1. 팀원이 PR 생성
-2. "스토리북 확인해 주세요" 요청
-3. 리뷰어가 브랜치 체크아웃
-4. npm install 실행 (매번 2~3분 소요)
-5. npm run storybook 실행
-6. 로컬에서 확인
-7. 추가 커밋 시 1~6 과정 반복
+2. GitHub Actions가 자동으로 배포
+3. 리뷰어가 고정 URL로 즉시 확인
+4. 추가 커밋 시에도 같은 URL로 자동 업데이트
 ```
 
 **그 외**
