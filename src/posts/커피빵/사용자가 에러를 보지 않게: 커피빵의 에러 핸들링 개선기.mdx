@@ -120,7 +120,7 @@ C 페이지: 아무런 피드백 없음
 
 저는 많은 에러들 중에서 현재 저희 서비스에서 필수적으로 핸들링 해야 하는 에러는 아래 2가지가 있다고 생각했습니다.
 
-1\. **HTTP 통신 과정에서 발생한 에러**
+1\. HTTP 통신 과정에서 발생한 에러
 
 2\. **예상치 못한 에러**
 
@@ -608,7 +608,7 @@ GlobalErrorBoundary (최상위)
 
 앞서 수립한 에러 핸들링 전략을 실제 코드로 구현하는 과정을 단계별로 정리했습니다.
 
-## **1. LocalErrorBoundary 구현**
+## 1. LocalErrorBoundary 구현
 
 **1-1. 기본 사용 방법**
 
@@ -745,7 +745,7 @@ export default LocalErrorBoundary;
 
 <br />
 
-## 2. **GlobalErrorBoundary 구현**
+## 2. GlobalErrorBoundary 구현
 
 **2-1. 클래스 컴포넌트에서 Hook 사용 문제**
 
@@ -1031,7 +1031,7 @@ Uncaught TypeError: Cannot read property 'map' of undefined
 
 <br />
 
-# **학습한 점**
+# 학습한 점
 
 이번 에러 핸들링 시스템을 구축하면서 여러 가지를 배울 수 있었습니다.
 
