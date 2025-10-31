@@ -1,0 +1,583 @@
+---
+title: "useSyncExternalStore로 커피빵 전역 상태 관리하기"
+date: 2025-10-10
+desc: 커피빵 프로젝트를 진행하며 늘어나는 Provider를 관리하기 위해 useSyncExternalStore로 직접 전역 상태관리를 구현해보았습니다.
+thumbnail: /posts/커피빵/useSync/image2.png
+---
+
+# 들어가며
+
+커피빵 프로젝트에서는 대부분의 상태를 **Context API**로 관리하고 있었습니다.
+
+특히 여러 페이지에서 참가자 정보, 사용자 정보 등을 공유해야 했기 때문에, 각 상태마다 개별 **Provider**를 만들다 보니 어느새 **App** 컴포넌트가 **Provider**들로 가득 차게 되었습니다.
+
+<img src="/posts/커피빵/useSync/image1.png" />
+
+이 과정에서 몇 가지 불편함을 겪었고, 이를 해결하기 위해 전역 상태 관리를 직접 구현하게 되었습니다. 오늘은 그 과정을 공유하고자 합니다.
+
+<br />
+
+## 문제 상황
+
+기존에 늘어나는 **Provider**들을 관리하다 보니 아래와 같은 문제 상황이 발생했었습니다.
+
+<br />
+
+1\. **의존성 관리의 어려움**
+
+Provider들은 순서에 민감합니다. 예를 들어 `WebSocketProvider`가 `UserProvider`의 `user` 정보를 필요로 한다면, 반드시 `UserProvider`가 상위에 위치해야 합니다.
+
+```tsx
+// WebSocketProvider가 UserProvider의 user 정보가 필요한 경우
+<UserProvider>  // 반드시 먼저 와야 함
+  <WebSocketProvider>  // user 정보를 사용
+    <App />
+  </WebSocketProvider>
+</UserProvider>
+
+// 순서를 바꾸면 에러 발생
+<WebSocketProvider>  // Error: user is undefined
+  <UserProvider>
+    <App />
+  </UserProvider>
+</WebSocketProvider>
+```
+
+더 심각한 문제는 순환 의존성입니다.
+
+만약 `ToastProvider`에서 user 정보가 필요하고, `UserProvider`에서 toast 기능이 필요하다면 어떻게 해야 할까요?
+
+이런 상황에서는 `Provider` 순서만으로는 해결할 수 없게 되는 문제가 발생합니다.
+
+<br />
+
+2\. **코드 가독성 및 유지보수 저하**
+
+`Context`를 하나 추가할 때마다 새로운 `Provider`, `Context`, 그리고 커스텀 훅까지 만들어야 했습니다.
+
+이는 불필요한 보일러플레이트 코드를 양산했고, 코드베이스를 복잡하게 만들었습니다.
+
+반면 전역 상태 관리를 사용하면 하나의 중앙 파일만 수정하면 되므로, 훨씬 간결하게 상태를 관리할 수 있습니다
+
+<br />
+
+3\. **확장성 한계**
+
+현재는 9개의 `Provider`지만, 프로젝트 요구사항이 늘어날수록 `Provider`도 계속 추가될 것입니다.
+
+이는 관리 복잡도를 증가시키고, 앱의 초기 렌더링 성능에도 영향을 미칠 수 있습니다.
+
+```tsx
+const App = () => {
+  return (
+    <ThemeProvider theme={theme}>
+      <IdentifierProvider>
+        <ParticipantsProvider>
+          <WebSocketProvider>
+            <PlayerTypeProvider>
+              <ProbabilityHistoryProvider>
+                <ToastProvider>
+                  <ModalProvider>
+                    <GlobalErrorBoundary>
+                      <Suspense fallback={<div>Loading...</div>}>
+                        <Outlet />
+                      </Suspense>
+                    </GlobalErrorBoundary>
+                  </ModalProvider>
+                </ToastProvider>
+              </ProbabilityHistoryProvider>
+            </PlayerTypeProvider>
+          </WebSocketProvider>
+        </ParticipantsProvider>
+      </IdentifierProvider>
+    </ThemeProvider>
+  );
+};
+
+export default App;
+```
+
+<br />
+
+## 해결 방법 모색
+
+`Provider` 없이 전역 상태를 관리하는 방법으로는 `Zustand`, `Redux` 같은 라이브러리를 사용하는 것이 일반적입니다. 하지만 저희 프로젝트에서는 단순히 상태를 공유하는 기능만 필요했기 때문에, 새로운 라이브러리를 도입하는 것은 다소 과한 선택처럼 느껴졌습니다. 러닝 커브도 부담스러웠고요.
+
+<br />
+
+그러던 중 **`useSyncExternalStore`** 라는 훅을 알게 되었습니다. 이 훅은 `React 18`에서 도입된 것으로, 외부 상태와 `React` 컴포넌트를 동기화하는 데 사용됩니다. 이를 활용하면 `Provider` 없이도 전역 상태 관리가 가능할 것 같았습니다.
+
+다음으로는 `useSyncExternalStore`를 활용한 전역 상태 관리 구현 과정을 살펴보겠습니다.
+
+<br />
+
+## **useSyncExternalStore**이란?
+
+<aside>
+
+React 18에서 도입된 훅으로, **외부 store를 구독할 수 있게 해주는 기능**
+
+</aside>
+
+<br />
+
+### 어떤 문제를 해결할까?
+
+React 18에서 도입된 **동시성 렌더링**(Concurrent Rendering)은 렌더링을 중단하고 재개할 수 있는 기능입니다. 하지만 이 과정에서 외부 상태를 직접 읽으면 **tearing** 문제가 발생할 수 있습니다.
+
+**Tearing**이란 UI의 서로 다른 부분이 같은 데이터의 다른 값을 보여주는 현상입니다. 예를 들어, 같은 카운터 값을 표시하는 두 컴포넌트가 동시에 렌더링될 때, 하나는 0을 표시하고 다른 하나는 1을 표시하는 상황이 발생할 수 있습니다.
+
+`useSyncExternalStore`는 이 문제를 해결합니다. 외부 `store`를 구독하여 **모든 컴포넌트가 동일한 스냅샷을 읽도록 보장**함으로써, 동시성 렌더링 환경에서도 일관된 UI를 유지할 수 있게 해줍니다.
+
+<br />
+
+## 사용법
+
+`useSyncExternalStore`의 기본 사용법은 다음과 같습니다.
+
+```tsx
+const snapshot = useSyncExternalStore(
+  subscribe,      // 구독 함수
+  getSnapshot,    // 현재 값을 반환하는 함수
+  getServerSnapshot? // (선택적인 값) SSR용 초기값
+)
+```
+
+각 매개변수의 역할을 자세히 살펴보겠습니다.
+
+### subscribe
+
+**스토어의 변경을 구독**하는 함수입니다.
+
+- 스토어가 변경될 때마다 인자로 받은 **callback** 함수를 호출합니다.
+- **cleanup** 함수를 반환하여 구독을 해제할 수 있어야 합니다.
+- **같은 스토어에 대해서는 항상 동일한 참조의 함수를 전달해야 합니다.** (재구독 방지)
+
+### getSnapshot
+
+**현재 스토어의 스냅샷을 반환**하는 함수입니다.
+
+- 불변 값을 반환해야 합니다.
+- 스토어가 변경되지 않았다면 동일한 값을 반환해야 합니다.
+- 반환값은 `Object.is`로 비교되므로 참조가 같아야 리렌더링을 방지할 수 있습니다.
+  <br />
+
+## 예제로 이해하기
+
+간단한 카운터 예제를 통해 `useSyncExternalStore`의 동작 방식을 이해해보겠습니다.
+
+먼저 스토어를 생성합니다.
+
+```tsx
+// 스토어 생성
+class CounterStore {
+  constructor() {
+    this.count = 0;
+    this.listeners = new Set();
+  }
+
+  subscribe = (listener) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener); // 클린업 함수
+  };
+
+  getSnapshot = () => {
+    return this.count;
+  };
+
+  increment = () => {
+    this.count++;
+    this.listeners.forEach((listener) => listener()); // 모든 구독자에게 알림
+  };
+}
+```
+
+`CounterStore` 클래스는 다음 요소들을 포함합니다.
+
+1\. `count`: 실제 상태 값
+
+2\. `listeners`: 구독자들을 관리하는 Set
+
+3\. `subscribe`: 구독을 등록하고 해제하는 함수
+
+4\. `getSnapshot`: 현재 상태를 반환하는 함수
+
+5\. `increment`: 상태를 변경하고 구독자들에게 알리는 함수
+
+<br />
+
+실제 공식 문서의 예제를 보면 `Counter`에 필요한 `Store`를 생성하고, 내부에 `listeners`를 함께 생성합니다. 그리고 `useSyncExternalStore` 내부에 넣어줄 `subscribe` 함수와 `getSnapShot` 함수를 구현해서 외부로 제공합니다.
+
+<br />
+
+그리고 위에서 구현한 `CounterStore`는 아래와 같이 선언하여 컴포넌트 내부에서 사용할 수 있습니다.
+
+```tsx
+const counterStore = new CounterStore();
+
+// React 컴포넌트에서 사용
+function Counter() {
+  const count = useSyncExternalStore(
+    counterStore.subscribe,
+    counterStore.getSnapshot
+  );
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={counterStore.increment}>+1</button>
+    </div>
+  );
+}
+```
+
+이렇게 하면 `Provider` 없이도 전역 상태를 사용할 수 있습니다. 여러 컴포넌트에서 `counterStore`를 구독하면, 하나의 컴포넌트에서 상태를 변경했을 때 모든 구독 중인 컴포넌트가 **자동으로 업데이트**됩니다.
+
+<br />
+
+지금까지 `useSyncExternalStore`의 개념과 사용법을 살펴봤습니다. 이제 실제 커피빵 프로젝트에 이를 어떻게 적용했는지 알아보겠습니다.
+
+<br />
+
+# 커피빵 프로젝트에 적용하기
+
+### 1단계 : 기존 Provider를 Store로 변환하기
+
+이제 실제로 커피빵 프로젝트의 Provider를 `useSyncExternalStore` 기반의 Store로 변환해보겠습니다. 예시로 현재 플레이어의 타입(`host` 또는 `guest`)을 관리하는 `PlayerTypeProvider`를 살펴보겠습니다.
+
+<br />
+
+### 기존 PlayerTypeProvider 코드
+
+```tsx
+import { PlayerType } from "@/types/player";
+import { storageManager, STORAGE_KEYS } from "@/utils/StorageManager";
+import { PlayerTypeContext } from "./PlayerTypeContext";
+import { PropsWithChildren, useEffect, useState } from "react";
+
+export const PlayerTypeProvider = ({ children }: PropsWithChildren) => {
+  const [playerType, setPlayerType] = useState<PlayerType | null>(() => {
+    return storageManager.getItem(
+      STORAGE_KEYS.PLAYER_TYPE,
+      "sessionStorage"
+    ) as PlayerType | null;
+  });
+
+  useEffect(() => {
+    if (playerType) {
+      storageManager.setItem(
+        STORAGE_KEYS.PLAYER_TYPE,
+        playerType,
+        "sessionStorage"
+      );
+    } else {
+      storageManager.removeItem(STORAGE_KEYS.PLAYER_TYPE, "sessionStorage");
+    }
+  }, [playerType]);
+
+  const setGuest = () => {
+    setPlayerType("GUEST");
+  };
+
+  const setHost = () => {
+    setPlayerType("HOST");
+  };
+
+  return (
+    <PlayerTypeContext.Provider
+      value={{ playerType, setPlayerType, setGuest, setHost }}
+    >
+      {children}
+    </PlayerTypeContext.Provider>
+  );
+};
+```
+
+이 `Provider`는 다음과 같은 기능을 합니다.
+
+1\. 플레이어 타입을 상태로 관리
+
+2\. `sessionStorage`와 동기화
+
+3\. 플레이어 타입을 설정하는 헬퍼 함수 제공 (`setGuest`, `setHost`)
+
+<br />
+
+### **Store로 변환하기**
+
+이제 같은 로직을 Store 클래스로 변환해보겠습니다.
+
+```tsx
+import { PlayerType } from "@/types/player";
+import { STORAGE_KEYS, storageManager } from "@/utils/StorageManager";
+
+class PlayerTypeStore {
+  private playerType: PlayerType | null = null;
+  private listeners: Set<() => void> = new Set();
+
+  constructor() {
+    // sessionStorage에서 초기값 가져오기
+    this.playerType = storageManager.getItem(
+      STORAGE_KEYS.PLAYER_TYPE,
+      "sessionStorage"
+    ) as PlayerType | null;
+    this.listeners = new Set();
+  }
+
+  // 플레이어 타입 설정 (private 헬퍼 메서드)
+  public setPlayerType = (playerType: PlayerType) => {
+    this.playerType = playerType;
+    this.updatePlayerSessionStorage(this.playerType);
+    this.notify();
+  };
+
+  // 편의 메서드
+  public setGuest = () => {
+    this.setPlayerType("GUEST");
+  };
+
+  public setHost = () => {
+    this.setPlayerType("HOST");
+  };
+
+  // sessionStorage 업데이트
+  private updatePlayerSessionStorage = (playerType: PlayerType) => {
+    storageManager.setItem(
+      STORAGE_KEYS.PLAYER_TYPE,
+      playerType,
+      "sessionStorage"
+    );
+  };
+
+  // useSyncExternalStore를 위한 subscribe 함수
+  public subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  // useSyncExternalStore를 위한 getSnapshot 함수
+  public getSnapshot = () => {
+    return this.playerType;
+  };
+
+  // 모든 구독자에게 변경 알림
+  private notify = () => {
+    this.listeners.forEach((listener) => listener());
+  };
+}
+
+export const playerTypeStore = new PlayerTypeStore();
+```
+
+이제 `Provider` 없이도 전역에서 플레이어 타입을 관리할 수 있게 되었습니다.
+
+<br />
+
+## 2단계 : 공통 로직 추상화하기
+
+하지만 여기서 한 가지 문제가 보입니다. 만약 9개의 Provider를 모두 이런 식으로 변환한다면, `subscribe`, `getSnapshot`, `notify` 같은 함수들을 매번 반복해서 작성해야 합니다.
+
+이런 보일러플레이트 코드를 줄이기 위해 공통 로직을 추상화해보겠습니다.
+
+<br />
+
+### createStore 유틸리티 함수 만들기
+
+`Store`에서 공통적으로 사용되는 부분을 추출하여 `createStore` 함수를 만들었습니다.
+
+```tsx
+const createStore = <T,>(initialState: T) => {
+  let state = initialState;
+  const listeners = new Set<() => void>();
+
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+
+  const getSnapshot = () => state;
+
+  const setState = (newState: T) => {
+    state = newState;
+    listeners.forEach((listener) => listener());
+  };
+
+  return {
+    subscribe,
+    getSnapshot,
+    setState,
+  };
+};
+
+export default createStore;
+```
+
+그리고 `PlayerTypeStore` 클래스를 `createStore`을 사용하는 버전으로 변경하면 아래와 같습니다.
+
+```tsx
+import { PlayerType } from "@/types/player";
+import { STORAGE_KEYS, storageManager } from "@/utils/StorageManager";
+import createStore from "@/path/to/createStore"; // 경로는 실제 위치에 맞게 수정
+
+// 초기값 가져오기
+const initialPlayerType = storageManager.getItem(
+  STORAGE_KEYS.PLAYER_TYPE,
+  "sessionStorage"
+) as PlayerType | null;
+
+// Store 생성
+const playerTypeStore = createStore<PlayerType | null>(initialPlayerType);
+
+// 커스텀 메서드 추가
+playerTypeStore.setPlayerType = (playerType: PlayerType) => {
+  playerTypeStore.setState(playerType);
+  storageManager.setItem(
+    STORAGE_KEYS.PLAYER_TYPE,
+    playerType,
+    "sessionStorage"
+  );
+};
+
+playerTypeStore.setGuest = () => {
+  playerTypeStore.setPlayerType("GUEST");
+};
+
+playerTypeStore.setHost = () => {
+  playerTypeStore.setPlayerType("HOST");
+};
+
+export { playerTypeStore };
+```
+
+이제 새로운 전역 상태가 필요할 때마다 `createStore`를 사용하여 빠르게 생성할 수 있고, 각 `Store`만의 고유한 로직 구현에만 집중할 수 있게 되었습니다.
+
+<br />
+
+## 3단계 : 커스텀 훅 만들기
+
+컴포넌트에서 Store를 조금 더 쉽게 사용할 수 있도록 커스텀 훅을 만들었습니다.
+
+```tsx
+import { useSyncExternalStore } from "react";
+import { playerTypeStore } from "@/stores/playerTypeStore";
+
+export const usePlayerType = () => {
+  const playerType = useSyncExternalStore(
+    playerTypeStore.subscribe,
+    playerTypeStore.getSnapshot
+  );
+
+  return {
+    playerType,
+    setPlayerType: playerTypeStore.setPlayerType,
+    setGuest: playerTypeStore.setGuest,
+    setHost: playerTypeStore.setHost,
+  };
+};
+```
+
+이제 컴포넌트에서는 다음과 같이 간단하게 사용할 수 있습니다.
+
+```tsx
+function MyComponent() {
+  const { playerType, setGuest, setHost } = usePlayerType();
+
+  return (
+    <div>
+      <p>현재 플레이어: {playerType}</p>
+      <button onClick={setGuest}>게스트로 설정</button>
+      <button onClick={setHost}>호스트로 설정</button>
+    </div>
+  );
+}
+```
+
+<br />
+
+# 적용 결과 및 효과
+
+### Provider 줄이기
+
+가장 눈에 띄는 변화는 `App` 컴포넌트가 간결해졌다는 점입니다.
+
+**Before**
+
+```tsx
+<ThemeProvider>
+  <IdentifierProvider>
+    <ParticipantsProvider>
+      <WebSocketProvider>
+        <PlayerTypeProvider>{/* ... 9개의 Provider */}</PlayerTypeProvider>
+      </WebSocketProvider>
+    </ParticipantsProvider>
+  </IdentifierProvider>
+</ThemeProvider>
+```
+
+**After**
+
+```tsx
+<ThemeProvider theme={theme}>
+  <GlobalErrorBoundary>
+    <Suspense fallback={<div>Loading...</div>}>
+      <Outlet />
+    </Suspense>
+  </GlobalErrorBoundary>
+</ThemeProvider>
+```
+
+그 외에도 기존에 있었던 문제를 해결할 수 있었습니다.
+
+1\. **의존성 문제 해결**
+
+- `Provider` 순서에 대한 고민 불필요
+- 순환 의존성 문제 근본적으로 해결
+- 어떤 `Store`든 다른 `Store`를 자유롭게 참조 가능
+
+  <br />
+
+2\. **코드 품질 향상**
+
+- 보일러플레이트 코드 약 70% 감소 (`Context`, `Provider`, 커스텀 훅 파일 불필요)
+- 하나의 파일에서 상태 관리 로직 완결
+- 코드 가독성 향상
+
+  <br />
+
+3\. **개발 생산성 증가**
+
+- 새로운 전역 상태 추가 시간: 약 5분 → 1분
+- `createStore`로 즉시 생성 가능
+- 비즈니스 로직에만 집중 가능
+
+  <br />
+
+4\. **성능 최적화**
+
+- 불필요한 `Provider` 리렌더링 제거
+- 컴포넌트 트리 깊이 감소로 렌더링 성능 개선
+- `React DevTools`에서 디버깅 용이
+
+<br />
+
+# 배운점
+
+### 1. useSyncExternalStore
+
+`useSyncExternalStore`는 단순히 외부 상태를 구독하는 것을 넘어, React의 동시성 렌더링과 안전하게 통합되는 방법을 제공합니다. 라이브러리 없이도 전역 상태 관리가 가능하다는 것을 알 수 있었습니다.
+
+### 2. 추상화의 중요성
+
+처음에는 각 `Store`를 개별적으로 구현했지만, `createStore` 함수로 추상화하면서 코드의 재사용성과 유지보수성이 향상되었습니다. 좋은 추상화는 복잡성을 숨기고 본질에 집중하게 해준다는 것을 깨달았습니다.
+
+### 3. 적절한 기술 선택
+
+무조건 유명한 라이브러리를 사용하는 것이 아니라, 프로젝트의 요구사항에 맞는 기술을 선택하는 것이 중요하다는 것입니다. 현재의 경우 단순한 상태 공유만 필요했기에, 직접 구현하는 것이 더 적합했습니다.
+
+<br />
+
+# 마치며
+
+이번 프로젝트를 통해 기존 코드의 문제점을 인식하고, 새로운 React 기능을 활용하여 실용적인 해결책을 만들어낼 수 있었습니다. Provider 지옥에서 벗어나 깔끔하고 유지보수하기 쉬운 코드베이스를 구축했습니다.
+
+여러분의 프로젝트에서도 비슷한 문제를 겪고 있다면, 이 글이 도움이 되길 바랍니다.
