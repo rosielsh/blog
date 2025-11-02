@@ -1,0 +1,570 @@
+---
+title: "Webpack Tree Shaking 동작 원리부터 sideEffects 설정까지"
+date: 2025-10-15
+desc: Tree Shaking이 CSS를 제거하는 이유와 sideEffects 설정으로 안전하게 번들 최적화하는 방법을 알아봅니다.
+thumbnail: /posts/개발/treeShaking/thumbnail.png
+---
+
+# 들어가며
+
+우아한 테크코스에서 성능 최적화를 수행하면서 `Tree Shaking`을 적용하기 위해 `package.json`에 `sideEffects: false` 설정을 추가했습니다. 빌드 크기가 줄어들었지만 페이지를 열어보니 `CSS`가 완전히 깨져있었습니다.
+
+알고 보니 `Tree Shaking`이 적용되어 스타일이 적용되지 않는 문제가 발생한 것이었는데요. 결국 저는 아래와 같은 설정을 추가해 주어 문제를 해결했습니다.
+
+```tsx
+// package.json
+"sideEffects": [
+    "*.css"
+  ],
+```
+
+<br />
+
+당시에는 `CSS`를 추가하니까 동작하네..? 라고 넘어갔지만, 최근 이 코드를 다시 보니 의문이 들었습니다. 정확히 **왜** `CSS`만 명시해야 하는지, `side effect` 설정이 어떤 의미인지, 이에 추가적으로 `Webpack`은 **어떻게** `Tree Shaking`을 수행하는지가 궁금해졌습니다.
+
+이번 기회에 `Tree Shaking`의 동작 원리부터 `sideEffects` 설정의 의미까지 학습해보기로 했고, 그 과정을 정리해 보겠습니다.
+
+<br />
+
+<aside>
+
+개인적인 학습 과정을 작성한 글이며, 이 글을 읽으면 좋은 사람들은 다음과 같습니다.
+
+</aside>
+
+1\. **package.json의 sideEffects 설정**을 보고 이게 뭐지?라고 생각해본 적이 있는 분
+
+2\. **Tree Shaking이 동작하는 원리**를 깊이 있게 알고 싶은 분
+
+3\. **라이브러리를 선택할 때** 왜 ESM 지원 여부를 확인해야 하는지 알고 싶은 분
+
+4\. **CSS 파일이 왜 sideEffects 배열에 포함**되어야 하는지 궁금한 분
+
+<br />
+
+## Tree Shaking이란
+
+**Tree Shaking**은 프로젝트에서 **실제로 사용되지 않는 코드를 제거**하는 최적화 기법입니다. 예를 들어, 라이브러리의 특정 함수 하나만 사용했는데도 전체 코드가 번들에 포함되어 파일 크기가 불필요하게 커지는 문제가 발생할 수 있습니다. 이럴 때 트리셰이킹을 적용하면 실제로 사용하는 코드만 번들에 남기게 됩니다.
+
+<br />
+
+## Webpack은 어떻게 사용되지 않는 코드를 판단할까?
+
+그렇다면 `webpack`은 어떻게 사용되지 않는 코드를 제거할 수 있는걸까요?
+
+다음 예시를 통해 **사용되지 않는 코드**를 판단하는 기준을 살펴보겠습니다.
+
+```tsx
+// utils.js
+export const add = (a, b) => a + b; // 사용됨
+export const subtract = (a, b) => a - b; // 사용됨
+export const multiply = (a, b) => a * b; // 사용 안 됨
+export const divide = (a, b) => a / b; // 사용 안 됨
+
+// main.js
+import { add, subtract } from "./utils";
+```
+
+<br />
+
+`Webpack`은 다음과 같은 방식으로 코드 사용 여부를 판단합니다.
+
+**1\. Import/Export 관계 분석**
+
+우선, Webpack이 전체 import/export 관계를 파악합니다. 예시를 보면 `multiply`, `divide` 함수는 `export`되었지만 어디서도 `import`되지 않았기 때문에, **1차 제거 대상**이 됩니다.
+
+2\. **실제 사용 여부를 추적**
+
+`import`된 것 중에서도 실제로 참조되지 않는 바인딩을 제거합니다. 예를 들어, add, subtract 함수를 import 했더라도 사용하지 않으면 제거 대상이 됩니다.
+
+3\. **AST 기반으로 분석**
+
+소스 코드를 AST로 변환하여 의존성 그래프를 생성하고, 사용되지 않는 노드를 표시합니다.
+
+<br />
+
+### AST는 어떻게 파싱하고 분석되는가?
+
+`Webpack`은 추상 구문 트리(AST, Abstract Syntax Tree)를 이용해 코드를 분석합니다.
+
+<br />
+
+**원본 코드**
+
+```tsx
+export const add = (a, b) => a + b;
+```
+
+**추상 구문 트리**
+
+실제 코드가 AST로 변환된 형태는 https://astexplorer.net/ 에서 확인할 수 있습니다.
+
+```tsx
+{
+  "type": "ExportNamedDeclaration", // export 문
+  "declaration": {
+    "type": "VariableDeclaration",
+    "declarations": [{
+      "type": "VariableDeclarator",
+      "id": { "type": "Identifier", "name": "add" },
+      "init": {
+        "type": "ArrowFunctionExpression",
+        "params": [
+          { "type": "Identifier", "name": "a" },
+          { "type": "Identifier", "name": "b" }
+        ],
+        "body": {
+          "type": "BinaryExpression",
+          "operator": "+",
+          "left": { "type": "Identifier", "name": "a" },
+          "right": { "type": "Identifier", "name": "b" }
+        }
+      }
+    }]
+  }
+}
+
+```
+
+Webpack은 `type === "ExportNamedDeclaration"`인 것과 `type === "ImportDeclaration"`인 것을 찾아서 export되었지만 import되지 않은 것을 제거 대상으로 간주합니다. 또한 실제로 참조되고 있는지도 확인합니다.
+
+<br />
+
+### 의존성 그래프는 어떻게 구축되는가?
+
+`AST`를 통해 개별 파일의 `import`/`export`를 분석했다면, 이제 프로젝트 전체의 모듈 관계를 파악해야 합니다. 이를 위해 `Webpack`은 **의존성 그래프**를 구축합니다.
+
+<br />
+
+`Webpack`은 다음과 같은 과정을 거쳐 의존성 그래프를 구축합니다.
+
+1\. **Entry**부터 시작해서 각 파일들에 대해 **import**문만 수집합니다.
+
+2\. 해당 파일에 있는 **import** 파일에 재귀적으로 **AST** 분석을 수행하고 그래프에 추가하는 과정을 반복합니다.
+
+<br />
+
+## Tree Shaking의 동작 환경
+
+`Tree Shaking`은 **정적 분석**(코드 실행 전에 구조를 분석해 사용되지 않는 코드를 찾아내는 기법)을 기반으로 동작합니다.
+
+즉, 트리셰이킹은 코드를 분석하고 번들링하는 **빌드 타임에 적용**됩니다.
+
+```tsx
+개발 중 (소스 코드)
+    ↓
+    └─────> npm run build
+    ↓
+📦 빌드 타임 ← 여기서 트리셰이킹 발생! (webpack이 코드 분석하고 필요없는 파일 제거)
+    ↓
+번들 파일 생성 (main.abc123.js)
+    ↓
+🌐 런타임 (브라우저에서 실행)
+```
+
+트리셰이킹이 잘 동작하려면, 번들러가 모듈간의 관계를 명확하게 분석할 수 있도록 모듈이 구성되어야 합니다.
+
+자바스크립트의 모듈 시스템에는 ESM과 CJS 2가지 방식이 있습니다. 그러나 이 중 **ESM**은 **정적인 구조**를 가지기 때문에 **빌드 타임에 분석이 가능**하고, 트리셰이킹이 효과적으로 적용됩니다.
+
+<br />
+
+### ESM(ES Modules)에서만 Tree Shaking이 가능한 이유
+
+자바스크립트의 두 가지 모듈 시스템 중에서 **ESM**에서만 **트리 셰이킹이 동작**합니다. 이를 이해하기 위해 **정적 구조**와 **동적 구조**의 차이를 알아야 합니다.
+
+1\. **정적 구조**: 컴파일/빌드 타임에 코드 실행 없이 분석 가능합니다 → **ESM**
+
+2\. **동적 구조**: 런타임에 코드를 실행해봐야 무엇을 **import**, **export**하는지 확정적으로 알 수 있습니다 → **CJS**
+
+<br />
+
+이를 자세한 예시로 설명하겠습니다.
+
+<br />
+
+### CJS에서는 왜 안 되는가?
+
+**CJS**는 코드를 실행해봐야 무엇이 필요한지 알 수 있기 때문에, 결과적으로는 안전하게 모든 **import**문을 포함하게 됩니다.
+
+```tsx
+// CJS -> 조건문이나 함수 안에서도 모듈 불러오기 가능
+function calculate(flag) {
+  if (flag) {
+    const { multiply, divide } = require("./math");
+    return multiply(10, 5);
+  } else {
+    const { add, subtract } = require("./math");
+    return add(10, 5);
+  }
+}
+// 경우에 따라 import하는 파일이 뭔지 모름 -> 안전하게 모두 포함하게 됨
+```
+
+<br />
+
+### ESM의 정적 구조에서는 왜 가능한가?
+
+**Webpack**이 코드를 실행하지 않고도 어떤 라이브러리가 필요한지 정확히 알 수 있습니다. 따라서 불러오는 모듈을 미리 파악하고 **의존성 그래프를 미리 구축**할 수 있습니다.
+
+```tsx
+// ESM - 파일 최상단에만 가능
+import { add, subtract } from "./math";
+
+function calculate() {
+  return add(1, 2);
+}
+
+// 불가능 - 문법 에러
+function calculate() {
+  import { add } from "./math"; // SyntaxError
+  return add(1, 2);
+}
+
+// 불가능 - 문법 에러
+if (condition) {
+  import { multiply } from "./math"; // SyntaxError
+}
+```
+
+<br />
+
+### 정리하자면
+
+**Webpack**은 빌드 타임에 코드를 실행할 수 없고 읽기만 가능합니다. 따라서 실행해봐야 알 수 있는 **CJS**에서는 안전하게 모든 모듈을 사용하는 코드라고 간주합니다. 반면 **ESM**에서는 **import**하는 파일이 무엇인지 명확하게 알 수 있기 때문에 **Tree Shaking**이 가능합니다.
+
+<br />
+
+## ESM 기반 라이브러리를 사용해야 하는 이유
+
+위에서 살펴본 것 처럼 ESM 기반 라이브러리가 아니라면 트리셰이킹이 적용되지 않습니다.
+
+즉, 라이브러리에서 필요한 기능만 가져오더라도 모듈 시스템이나 번들 설정이 제대로 되어있지 않으면 전체 라이브러리가 포함돼 번들 크기가 커질 수 있다는 말입니다.
+
+### lodash 라이브러리 예시
+
+예를 들어 **lodash** 라이브러리에서 **deepEqual** 함수 하나만 사용한다고 가정해봅시다. 그러나 lodash는 CJS 방식으로 작성되어 트리셰이킹이 적용되지 않습니다. 결국 **deepEqual** 외에도 **lodash의 모든 코드가 번들에 포함**됩니다.
+
+이를 해결하기 위해서는 **ESM**을 지원하는 **es-toolkit**을 사용해야 합니다. **es-toolkit**은 **ESM** 구조를 사용해 필요한 함수만 선택적으로 가져올 수 있습니다.
+
+지금까지 Tree Shaking의 기본 원리와 ESM의 중요성을 살펴봤습니다. 이제 다시 처음 배경에서 언급했던 `sideEffects` 설정으로 돌아가보겠습니다. 왜 이 설정이 필요한지 이제 더 깊이 이해할 수 있을 것입니다.
+
+<br />
+
+## sideEffects
+
+앞서 배경에서 이야기했듯이, `Tree Shaking`을 적용할 때 `CSS`가 깨지는 문제를 경험했는데요. 이는 `sideEffects` 설정과 직접적으로 관련이 있었습니다.
+
+그렇다면 정확히 `sideEffects`가 무엇이고, 왜 이 설정이 필요한 걸까요?
+
+<br />
+
+### 문제 상황: CSS Import가 제거되는 경우
+
+아래와 같은 코드를 예시로 봅시다.
+
+```tsx
+**import './Button.css';**
+
+export const Button = ({ children }) => {
+  return <button className="btn">{children}</button>;
+};
+```
+
+앞서 배운 Tree Shaking 과정을 생각해보면, `import './Button.css'`는 다음과 같은 특징이 있습니다.
+
+-> import는 했지만, 코드 어디에서도 `Button.css`를 직접 참조하지 않음
+
+<br />
+
+그렇다면 **이 import문을 제거해도 될까요??**
+
+아닙니다.
+
+`CSS import`는 비록 직접 참조되지 않더라도, `import`되는 순간 `DOM`에 스타일을 적용하는 **부수 효과(side effect)** 를 발생시킵니다. 하지만 **Webpack은 파일 안을 들여다보지 않고서는 side effect가 있는지 알 수 없습니다.**
+
+따라서 개발자가 명시적으로 알려주는 `sideEffects` 설정이 필요합니다.
+
+<br />
+
+## sideEffects 설정의 의미
+
+`sideEffects`는 **"이 파일은 import되는 순간 뭔가 실행해야 하는 코드가 있어요"** 라고 `Webpack`에게 알려주는 힌트입니다. 이를 통해 `Webpack`은 안전하게 `Tree Shaking`을 수행할 수 있습니다.
+
+예를 들어, 다음과 같은 `Button` 컴포넌트가 있다고 가정해봅시다.
+
+```tsx
+// Button.js
+import "./Button.css";
+
+export const Button = ({ children }) => {
+  return <button className="btn">{children}</button>;
+};
+```
+
+<br />
+
+### `sideEffects: false`인 경우
+
+이 경우, 프로젝트의 모든 파일에 `side effect`가 없다고 보증합니다.
+
+따라서 `webpack`은 `Button.css`를 직접 사용하는 코드가 없기 때문에 (import만 하고 참조 안 함) `CSS` `import` 구문 자체를 제거하게 됩니다.
+
+```tsx
+// 최종 번들 -> import문 제거
+export const Button = ({ children }) => {
+  return <button className="btn">{children}</button>;
+};
+```
+
+결국 버튼에 스타일이 적용되지 않는 문제가 발생하겠죠?
+
+<br />
+
+### `sideEffects: ['*.css']`인 경우
+
+이 경우, `CSS` 파일은 `side effect`가 있을 수 있다고 명시합니다. 따라서 **import** 구문 자체가 무언가를 할 수도 있으니 파일 전체를 실행하게 됩니다.
+
+```tsx
+// Button.css import 유지
+import "./Button.css";
+
+export const Button = ({ children }) => {
+  return <button className="btn">{children}</button>;
+};
+```
+
+버튼에 스타일이 정상적으로 적용됩니다.
+
+<br />
+
+## Tree Shaking 과정에서 sideEffects의 역할
+
+정리하자면, `Tree Shaking`은 다음과 같은 단계로 진행되는데요.
+
+- 1단계: `Import`/`Export` 분석
+- 2단계: 사용 여부 확인
+- 3단계: `sideEffects` 확인 ← 여기서 `sideEffects` 개입 (사용되지 않는 `import`라면 `sideEffect`에 명시되어 있나 확인)
+- 4단계: 제거 여부 최종 결정
+
+<br />
+
+## sideEffects와 usedExports 속성의 차이
+
+<img src="/posts/개발/treeShaking/image.png" width="200px" />
+
+실제로 프로젝트에서도 트리 셰이킹을 위해서 `optimization.usedExports`라는 속성을 사용합니다. 이것이 `sideEffects` 속성과는 어떤 차이점이 있는지 살펴보겠습니다.
+
+<br />
+
+### usedExports (안쓰는 export 표시)
+
+- **webpack**이 코드를 분석해서 실제로 사용하지 않는 **export**를 찾아냅니다. (production 모드에서는 기본값이 true입니다.)
+- 사용되지 않는 **export**에 `/* unused harmony export */` 주석을 달아줍니다.
+- 최종 제거는 **Terser**와 같은 **minifier**가 담당합니다.
+- 즉, 실제로 제거하지는 않고 사용되지 않는다고 표식만 합니다.
+
+<br />
+
+### sideEffects (개발자가 부수 효과가 없다고 제공하는 힌트)
+
+- 개발자가 **package.json**에서 '이 파일은 부작용이 없음'이라고 선언하여 **webpack**에게 알립니다.
+- **webpack**이 코드 분석 없이 이 정보를 신뢰합니다.
+- 즉, 사용되지 않는 **import**가 있으면 파일 자체를 제거할 수 있습니다.
+
+<br />
+
+### 구체적인 예시
+
+예시를 통해 알아보겠습니다.
+
+현재 `util` 함수 내부에는 사이드 이펙트를 발생시키는 코드가 있고, `add` 함수만 외부에서 사용되고 있습니다.
+
+```tsx
+// utils.js
+export function add(a, b) {
+  return a + b;
+}
+export function multiply(a, b) {
+  return a * b;
+}
+
+console.log("utils loaded"); // 사이드 이펙트 발생
+```
+
+```tsx
+// main.js
+import { add } from "./utils";
+console.log(add(1, 2)); // multiply는 사용 안 함
+```
+
+<br />
+
+**usedExports만 있는 경우**
+
+- `multiply`가 사용 안 되는 것을 감지합니다.
+- 하지만 `console.log('utils loaded')`가 있어서 파일 자체는 포함됩니다.
+- 결과: `console.log`를 포함한 `utils.js` 전체가 번들에 포함됩니다 (사이드 이펙트 때문에)
+
+<br />
+
+**sideEffects: false를 선언한 경우**
+
+- 사이드 이펙트가 없다고 믿고 `multiply`와 `console.log` 모두 제거합니다.
+- 결과: `add` 함수만 번들에 포함됩니다.
+
+<br />
+
+# Tree Shaking 동작 과정 확인해보기
+
+이론적으로 Tree Shaking이 어떻게 동작하는지 충분히 이해했습니다. 이제 직접 실습을 통해 Tree Shaking이 실제로 어떻게 작동하는지 확인해보겠습니다.
+
+```tsx
+// utils.js
+export function used() {
+  console.log("This is used");
+  return "used";
+}
+
+export function unused() {
+  console.log("This is NOT used");
+  return "unused";
+}
+
+// index.js
+import { used } from "./utils";
+
+console.log(used());
+```
+
+### webpack-bundle-analyzer로 확인하는 방법
+
+```tsx
+const BundleAnalyzerPlugin =
+  require("webpack-bundle-analyzer").BundleAnalyzerPlugin;
+
+module.exports = {
+  mode: "production",
+  plugins: [
+    new BundleAnalyzerPlugin({
+      analyzerMode: "static", // HTML 파일 생성
+      reportFilename: "bundle-report.html",
+      openAnalyzer: true, // 자동으로 브라우저 열기
+      generateStatsFile: true,
+      statsFilename: "stats.json",
+    }),
+  ],
+  optimization: {
+    usedExports: true, // Tree shaking 활성화
+    minimize: true,
+  },
+};
+```
+
+**package.json 설정**
+
+```tsx
+{
+  "sideEffects": false
+}
+```
+
+<br />
+
+### 결과
+
+- `used()` 함수: 번들에 포함됩니다.
+- `unused()` 함수: 번들에서 제거됩니다.
+
+<br />
+
+## 실제 번들 파일 분석
+
+참고로 여기서는 `Terser` 설정을 `false`로 바꾼 후 번들 파일을 캡쳐했습니다. `Terser` 적용 시 트리셰이킹을 적용하면 사용되지 않는 함수는 번들 파일에서 제거됩니다.
+
+### 트리셰이킹 미적용 시
+
+트리셰이킹이 적용되지 않은 경우, 사용하지 않는 함수들도 번들에 포함됩니다.
+
+<img src="/posts/개발/treeShaking/image 1.png" width="400px" />
+
+### 트리셰이킹 적용 시
+
+트리셰이킹이 적용된 경우, 실제로 사용하는 코드만 번들에 포함됩니다.
+
+실제로 사용되는 함수인 `used`는 바인딩이 되었고, `unused` 함수는 주석처리가 된 것을 볼 수 있습니다.
+
+<img src="/posts/개발/treeShaking/image 2.png" width="400px" />
+
+### 여기서 harmony export 주석의 의미
+
+이 빌드 파일 자체는 **webpack**이 빌드한 중간 결과물입니다 (즉, **Terser**가 적용되기 전 상태). **webpack**은 **`/* unused harmony export multiply */`** 이런 식으로 표시만 하고, 실제 함수는 코드로 살아남아 있는 것을 볼 수 있습니다. 나중에 **minimize** 과정에서 **Terser**가 이 주석을 보고 사용되지 않는 함수를 제거하게 됩니다.
+
+<br />
+
+## 번들 크기 비교
+
+### 트리셰이킹 미적용
+
+<img src="/posts/개발/treeShaking/image 3.png" width="400px" />
+
+### 트리셰이킹 적용
+
+<img src="/posts/개발/treeShaking/image 4.png" width="400px" />
+
+실제로 트리셰이킹 적용 이후 `Gzipped Size`가 감소한 것을 볼 수 있습니다.
+
+### 크기 지표 설명
+
+- **stat size**: 원본 소스 코드의 크기입니다.
+- **parsed size**: **webpack**이 번들링한 후의 크기입니다.
+- **gzipped size**: 서버에서 브라우저로 전송되는 크기입니다. 이것이 실제 사용자 경험에 영향을 미칩니다.
+
+<br />
+
+## 정리
+
+이번 글에서는 `Tree Shaking`의 동작 원리와 `sideEffects` 설정에 대해 학습해봤습니다. 내용을 정리하면 다음과 같습니다.
+
+<br />
+
+### Tree Shaking의 핵심 메커니즘
+
+- **AST 분석**: Webpack은 추상 구문 트리를 통해 코드의 import/export 관계를 파악합니다.
+- **의존성 그래프**: Entry 파일부터 시작해 재귀적으로 모든 모듈의 의존 관계를 구축합니다.
+- **정적 분석**: 빌드 타임에 코드를 실행하지 않고도 사용 여부를 판단할 수 있어야 합니다.
+
+### ESM이 필수인 이유
+
+- **CJS**는 런타임에 동적으로 모듈을 불러올 수 있어 빌드 타임에 분석이 불가능합니다.
+- **ESM**은 최상단에서만 import가 가능한 정적 구조를 가져 Tree Shaking이 가능합니다.
+- 라이브러리를 선택할 때는 반드시 ESM 지원 여부를 확인해야 합니다.
+
+### sideEffects 설정의 중요성
+
+- `Webpack`은 기본적으로 보수적으로 동작하여 `side effect`가 있을 수 있는 코드는 제거하지 않습니다.
+- `sideEffects: false`로 설정하면 더 적극적인 `Tree Shaking`이 가능합니다.
+- `CSS` 같은 파일은 `import`만으로도 `DOM`을 변경하므로 반드시 `sideEffects` 배열에 명시해야 합니다.
+
+<br />
+
+# 배운 점
+
+### 1. 원리를 이해하는 것의 중요성
+
+처음에는 `CSS` 파일을 `sideEffects` 배열에 추가하니 문제가 해결되어 잘 동작하는 것을 보고 넘어갔습니다. 하지만 이번에 깊이 공부하면서 **왜** 그렇게 동작하는지 원리를 이해할 수 있었습니다. 단순히 문제를 해결하는 것과 원리를 이해하는 것은 큰 차이가 있다는 것을 다시 한번 깨달았습니다.
+
+### 2. 번들러의 동작 원리 이해
+
+`Webpack`이 `AST`를 파싱하고, 의존성 그래프를 구축하고, 정적 분석을 수행하는 과정을 상세히 이해하게 되었습니다. 이러한 이해는 앞으로 다른 번들 최적화 작업을 할 때도 큰 도움이 될 것 같습니다.
+
+### 3. 모듈 시스템의 중요성
+
+`ESM`과 `CJS`의 차이가 단순히 문법의 차이가 아니라, 빌드 최적화에 직접적인 영향을 미친다는 것을 알게 되었습니다. 특히 라이브러리를 선택할 때 `ESM` 지원 여부가 왜 중요한지 명확히 이해하게 되었습니다.
+
+<br />
+
+# 마치며
+
+이번 학습을 통해 단순히 설정을 적용하는 것을 넘어 `Tree Shaking`의 동작 원리까지 이해하게 되었습니다. 앞으로도 질문을 던지며 표면적인 문제 해결에 그치지 않고 근본적인 원리를 이해하려는 태도를 가지고 싶습니다.
+
+저와 같이 `Tree Shaking`과 `sideEffects` 설정에 대해 궁금해하시는 분들께 이 글이 도움이 되었으면 좋겠습니다.
