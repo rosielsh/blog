@@ -1,0 +1,682 @@
+---
+title: "useSyncExternalStore가 동작하는 방식"
+date: 2025-10-26
+desc: React 18의 동시성 모드에서 Tearing 문제를 해결하는 useSyncExternalStore의 내부 구현 원리를 코드 레벨에서 분석합니다.
+thumbnail: /posts/개발/4/thumbnail.png
+---
+
+## 들어가며
+
+최근 [**useSyncExternalStore을 기반으로 전역 상태 관리를 구현**](https://leesoooh.vercel.app/posts/%EC%BB%A4%ED%94%BC%EB%B9%B5/useSyncExternalStore%EB%A1%9C%20%EC%BB%A4%ED%94%BC%EB%B9%B5%20%EC%A0%84%EC%97%AD%20%EC%83%81%ED%83%9C%20%EA%B4%80%EB%A6%AC%ED%95%98%EA%B8%B0)해보았습니다.
+
+이렇게 구현을 해보면서 useSyncExternalStore가 React의 외부 상태를 React의 생명주기와 동기화를 시켜준다는 사실을 알게 되었는데요.
+
+그 과정에서 useSyncExternalStore의 내부는 어떻게 구현되어 있길래 이렇게 동작하는게 가능한지 궁금해졌습니다.
+
+본 게시물에서는 이러한 useSyncExternalStore의 **내부가 어떻게 구현되어있는지**, **기존의 어떤 문제를 해결하기 위해 이런 방식으로 구현하게 되었는지**를 알아보겠습니다.
+
+<br />
+
+# useSyncExternalStore이란?
+
+<aside>
+
+간단히 말하자면 **외부 스토어와 싱크를 맞추는데 사용되는 훅**입니다
+
+</aside>
+
+공식 문서는 [여기](https://react.dev/reference/react/useSyncExternalStore#usesyncexternalstore)서 볼 수 있습니다.
+
+<br />
+
+## 왜 필요한가?
+
+**외부 스토어를 React에서 사용**할 때 **2가지의 문제**가 발생하게 되었습니다. 각각의 예시를 들어 설명해보겠습니다.
+
+### 1. 변경을 감지할 수 없음
+
+아래와 같은 코드가 있다고 가정해보겠습니다.
+
+**useState**로 **외부의 값인 onLine 여부를 확인하는 상태**를 사용하고 있는데요.
+
+```tsx
+import { useEffect, useCallback, useState } from "react";
+export function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const update = useCallback(() => {
+    setIsOnline(navigator.onLine);
+  }, []);
+  useEffect(() => {
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, [update]);
+  return isOnline;
+}
+```
+
+이때, useState로 초기값을 읽고 **useEffect에서 이벤트를 등록하는 사이에 값이 바뀌면 감지하지 못하는 문제**가 발생합니다. 그 이유는 외부의 저장소에 있는 값의 변경을 React가 감지하지 못하기 때문입니다.
+
+<br />
+
+이러한 문제를 해결하려면, 값을 실시간으로 받아오기 위해 이벤트 리스너를 등록한 후에 한 번 더 값을 확인해야 합니다.
+
+```tsx
+useEffect(() => {
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    **update(); // 변경 여부를 재확인**
+
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    }
+  }, [update])
+```
+
+<br />
+
+### 2. Tearing 문제
+
+React 18에서 등장한 **동시성 모드로 인해 렌더링이 중단되었다가 재개**될 수 있는데요.
+
+이때, 렌더링 도중에 외부 저장소의 값이 변경된다면 UI의 다른 부분에서 다른 값을 보여주는 [Tearing 문제](https://github.com/reactwg/react-18/discussions/69)가 발생할 수 있습니다.
+
+리액트의 동시성 모드에서는 렌더링 단계에서 작업 우선순위에 따라, 렌더링이 중단되었다가 다시 실행될 수 있는데요. 이때 React가 트리를 렌더링하는 동안 프로세스가 중단되고, 비동기 스케줄링으로 인해 분할 될 가능성이 있습니다.
+
+<br />
+
+예를 들어, 아래 코드를 실행했을 때 같은 **Cell 컴포넌트**를 렌더링했지만, 그 안에 있는 값은 다르게 보여집니다.
+
+```tsx
+import { useEffect, startTransition, useCallback, useState } from "react";
+
+// 외부 상태 관리
+let data = 1;
+function getData() {
+  return data;
+}
+
+setTimeout(() => (data = 2), 100);
+
+function Cell() {
+  let start = Date.now();
+  while (Date.now() - start < 50) {
+    // force yielding to main thread in concurrent mode
+  }
+  const data = getData();
+  return <div style={{ padding: "1rem", border: "1px solid red" }}>{data}</div>;
+}
+
+export default function App() {
+  const [showCells, setShowCells] = useState(false);
+
+  useEffect(() => {
+    startTransition(() => setShowCells(true));
+  }, []);
+  return (
+    <>
+      <p>
+        Example of tearing. <br />
+        below are multiple cells rendering same external data which changes during
+        rendering.
+      </p>
+      {showCells ? (
+        <div style={{ display: "flex", gap: "1rem" }}>
+          <Cell />
+          <Cell />
+          <Cell />
+          <Cell />
+        </div>
+      ) : (
+        <p>preparing..</p>
+      )}
+    </>
+  );
+}
+```
+
+위 예제 코드는 data라는 외부 상태를 가지며, 0.1초 뒤에 data가 1 → 2로 변경됩니다.
+
+각 Cell은 렌더링에 50ms씩 소요되며 렌더링 도중에 getData로 외부 데이터를 읽어옵니다.
+
+<br />
+
+위 코드의 결과는 아래와 같은데요. 이렇게 같은 데이터 소스를 참조하고 있는데, 다른 값(1, 1, 2, 2)이 표시되는 현상이 **Tearing 현상**입니다.
+
+<img src="/posts/개발/4/1.png" width="400px" />
+
+당연히 변하는 외부 데이터를 읽어오기 때문에 값이 변하는게 당연한 것 같은데, 이게 왜 문제가 될까요?
+
+<br />
+
+그 이유는 같은 상태를 표시하는 컴포넌트들이 렌더링 중에 서로 다른 값을 보여주게 되면 **UI의 불일치**가 발생하기 때문입니다. 만약 useState나 useReducer를 사용하면 이런 문제가 발생하지 않기 때문에, 외부 스토어를 사용할 때 주의해야 합니다.
+
+<br />
+
+이러한 문제를 해결하기 위해 **useSyncExternalStore 훅을 사용**하는데요.
+
+이렇게 하면 React가 렌더링 도중에도 외부 데이터가 변경되었다는 사실을 감지하고 일관성있는 UI를 보여줄 수 있게 됩니다.
+
+```tsx
+import { useSyncExternalStore } from "react";
+
+function Cell() {
+  const data = useSyncExternalStore(
+    subscribe, // 변경 감지
+    getData // 현재 값 반환
+  );
+  return <div>{data}</div>;
+}
+```
+
+<br />
+
+## 어떻게 해결하나?
+
+**useSyncExternalStore**는 2가지 매커니즘으로 위와 같은 문제를 해결합니다.
+
+<br />
+
+### 1. Passive Effect로 변경 감지
+
+```tsx
+mountEffect(subscribeToStore.bind(null, fiber, inst, subscribe), [subscribe]);
+```
+
+useEffect 처럼 Passive Effect를 등록해서 외부 저장소의 변경을 구독합니다. **변경이 감지되면 동기 모드(SyncLane)로 강제로 리렌더링**됩니다.
+
+Tearing은 동시성 모드에서만 발생하므로 동기모드로 전환하면 문제가 해결됩니다.
+
+<br />
+
+### 2. 일관성 검사
+
+**Concurrent mode**의 렌더링이 끝나고 커밋 직전에 외부 저장소를 다시 확인하는 작업입니다.
+
+```tsx
+if (!includesBlockingLane(root, renderLanes)) {
+  pushStoreConsistencyCheck(fiber, getSnapshot, nextSnapshot);
+}
+```
+
+만약 렌더링 도중에 값이 바뀌었다면, 동기 모드로 다시 렌더링합니다. 이렇게 사용자가 불일치된 UI를 보지 못하도록 방지합니다.
+
+정리하면, **useSyncExternalStore**는 **모든 외부 변경을 감지**하기 위해 **구독 직후에 한 번 더 체크**하고, **Tearing 방지**를 위해 **변경 감지 시 동기 모드로 강제로 전환되는 방식**으로 동작하기 때문에 React 외부의 데이터를 안전하게 사용할 수 있도록 해줍니다.
+
+<br />
+
+## 사용 방법
+
+**useSyncExternalStore**를 사용하는 방법은 아래와 같습니다.
+
+```tsx
+const data = useSyncExternalStore(
+  subscribe: (callback: () => void) => () => void,
+  getSnapshot: () => T,
+  getServerSnapshot?: () => T  // SSR용 (optional)
+)
+```
+
+1\. **subscribe (구독 함수)**
+
+<aside>
+
+**외부 스토어의 변경을 감지**하고 React에게 알리는 역할을 하는 함수
+
+</aside>
+
+<br />
+
+실제 구현하는 예시는 아래와 같습니다.
+
+```tsx
+let listeners = [];
+let data = 1;
+
+function subscribe(callback) {
+  listeners.push(callback);
+
+  // cleanup: 리스너 제거
+  return () => {
+    listeners = listeners.filter((l) => l !== callback);
+  };
+}
+```
+
+실제로 스토어 변경 시, **subscribe** 함수가 호출되고 리스너를 등록합니다.
+
+해당 컴포넌트가 언마운트 되면 클린업 함수가 실행되어 리스너가 삭제됩니다.
+
+<br />
+
+2\. **getSnapshot** (현재 값 반환)
+
+<aside>
+
+스토어의 현재 값을 반환하는 함수
+
+</aside>
+
+실제 예시는 아래와 같습니다. 외부에서 관리하는 데이터를 반환하면 됩니다.
+
+```tsx
+let data = 1;
+
+function getSnapshot() {
+  return data;
+}
+```
+
+지금까지는 **useSyncExternalStore**가 왜 등장하게 되었고, 어떻게 사용하는지에 대해서 알아보았는데요.
+
+다음으로는 **useSyncExternalStore**가 어떻게 외부 상태를 React와 동기화 시킬 수 있는지 그 과정에 대해서 알아보겠습니다.
+
+<br />
+
+## useSyncExternalStore가 내부적으로 어떻게 동작하는가?
+
+<aside>
+
+제가 지금부터 작성하는 부분은 기존 소스코드에 있는 주석이나 불필요한 과정(hydration과 같은)을 생략하고 작성된 버전입니다. 실제 구현이 궁금하신 분들은 [여기](https://github.com/facebook/react/blob/main/packages/react-reconciler/src/ReactFiberHooks.js#L1725)서 볼 수 있습니다.
+
+</aside>
+
+<br />
+
+전체적으로 이해하는데 필요한 함수는 아래 적혀있는 함수들입니다.
+
+```tsx
+// 초기 마운트
+function mountSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+// 구독 관리
+function subscribeToStore(fiber, inst, subscribe);
+// 값 변경 체크
+function checkIfSnapshotChanged(inst);
+// 강제 리렌더링
+function forceStoreRerender(fiber);
+// 일관성 체크
+function pushStoreConsistencyCheck(fiber, getSnapshot, renderedSnapshot);
+```
+
+<br />
+
+### 1. mountSyncExternalStore
+
+<aside>
+
+해당 훅이 초기 마운트 되었을 때 실행되는 함수
+
+</aside>
+
+```tsx
+function mountSyncExternalStore<T>(
+  subscribe: (() => void) => () => void,
+  getSnapshot: () => T,
+  getServerSnapshot?: () => T,
+): T {
+  const fiber = currentlyRenderingFiber;
+  const hook = mountWorkInProgressHook(); // 새로운 훅 생성
+
+  let nextSnapshot = getSnapshot(); // 새로운 스냅샷 생성
+
+  const root: FiberRoot | null = getWorkInProgressRoot();
+
+  const rootRenderLanes = getWorkInProgressRootRenderLanes();
+  if (!includesBlockingLane(rootRenderLanes)) {
+    pushStoreConsistencyCheck(fiber, getSnapshot, nextSnapshot);
+  }
+
+  // 현재 hook에 값을 저장
+  hook.memoizedState = nextSnapshot;
+
+  // 구독 effect 등록
+  mountEffect(subscribeToStore.bind(null, fiber, inst, subscribe), [subscribe]);
+
+  // 값 업데이트 effect 등록
+  fiber.flags |= PassiveEffect;
+  pushSimpleEffect(
+    HookHasEffect | HookPassive,
+    createEffectInstance(),
+    updateStoreInstance.bind(null, fiber, inst, nextSnapshot, getSnapshot),
+    null,
+  );
+
+  return nextSnapshot;
+}
+```
+
+전체적으로 컴포넌트가 렌더링되고, 가장 먼저 실행되는 것이 mountSyncExternalStore입니다.
+
+이때, 현재 스냅샷(초기 외부 상태의 값)을 **nextSnapshot**에 저장하고, **mountEffect**로 **subscribeToStore**를 등록합니다. 또한 **pushSimpleEffect**로 **updateStoreInstance**를 등록합니다.
+
+<br />
+
+다음으로는 과정에서 구독을 하기 위해 호출되는 함수인 **subscribeToStore**을 알아보겠습니다.
+
+<br />
+
+### 2. subscribeToStore
+
+<aside>
+
+마운트 과정에서 구독을 할 때 호출되는 함수
+
+</aside>
+
+```tsx
+function subscribeToStore<T>(
+  fiber: Fiber,
+  inst: StoreInstance<T>,
+  subscribe: (() => void) => () => void,
+): any {
+	// 외부 저장소 변경 시 호출
+  const handleStoreChange = () => {
+    // 값이 바뀌었는지 확인
+    if (checkIfSnapshotChanged(inst)) {
+      // 강제로 리렌더링
+      startUpdateTimerByLane(SyncLane, 'updateSyncExternalStore()', fiber);
+      forceStoreRerender(fiber);
+    }
+  };
+  // Subscribe to the store and return a clean-up function.
+  return subscribe(handleStoreChange);
+}
+
+```
+
+정리해보면, **subscribeToStore**를 호출하면 **subscribe**를 호출하여 외부 저장소를 구독하고, **subscribe**라는 함수에 **handleStoreChange**를 넘겨줍니다.
+
+그리고 이때 넘겨주는 **handleStoreChange**는 **외부 저장소가 변경되었을 때 호출되는 함수**입니다. 이 함수 내부에는 값이 변경되었는지 확인하는 함수가 있습니다.
+
+<br />
+
+### 3. checkIfSnapshotChanged
+
+<aside>
+
+스냡샷으로 찍은 값이 바꼈는지 확인하는 함수
+
+</aside>
+
+```tsx
+function checkIfSnapshotChanged<T>(inst: StoreInstance<T>): boolean {
+  const latestGetSnapshot = inst.getSnapshot;
+  const prevValue = inst.value;
+
+  try {
+    const nextValue = latestGetSnapshot();  // 현재 외부 값 읽기
+    **return !is(prevValue, nextValue);**       // Object.is 비교
+  } catch (error) {
+    return true;  // 에러도 변경으로 간주
+  }
+}
+```
+
+[Object.is](http://Object.is) 함수를 기반으로 스냅샷으로 찍은 값이 동일한 값인지 확인합니다.
+
+<br />
+
+### 4. forceStoreRerender
+
+<aside>
+
+강제 리렌더링을 시키는 함수
+
+</aside>
+
+<br />
+
+**forceStoreRerender** 함수는 외부 저장소의 값이 변경되었을 때 호출되는 **handleStoreChange**에서 값이 변경되었을 때 실행됩니다.
+
+```tsx
+function forceStoreRerender(fiber: Fiber) {
+  const root = enqueueConcurrentRenderForLane(fiber, SyncLane);
+  if (root !== null) {
+    **scheduleUpdateOnFiber(root, fiber, SyncLane, NoTimestamp);**
+  }
+}
+```
+
+이때, **scheduleUpdateOnFiber**에 현재 **Fiber**를 넣어주면 Lane 우선순위에 따라 Sync/Concurrent 실행을 결정하게 됩니다.
+
+<br />
+
+- **SyncLane**의 의미
+
+```tsx
+// React의 Lane 시스템
+const SyncLane = 0b0000000000000000000000000000001;        // 31비트 중 1번 비트
+const InputContinuousLane = 0b0000000000000000000000000000100;  // 3번 비트
+const DefaultLane = 0b0000000000000000000000000010000;          // 5번 비트
+const TransitionLane1 = 0b0000000000000000000000010000000;      // 8번 비트
+
+// **scheduleUpdateOnFiber** 내부
+function ensureRootIsScheduled(root) {
+  const nextLanes = getNextLanes(root, ...);
+
+  if (includesSyncLane(nextLanes)) {
+    // SyncLane이면 즉시 동기 처리!
+    scheduleSyncCallback(performSyncWorkOnRoot.bind(null, root));
+    flushSyncCallbacks();  // 즉시 실행
+  } else {
+    // 다른 Lane이면 Scheduler에 예약 (중단 가능)
+    scheduleCallback(priorityLevel, performConcurrentWorkOnRoot.bind(null, root));
+  }
+}
+```
+
+<br />
+
+**scheduleUpdateOnFiber에서는 왜 SyncLane을 사용할까?**
+
+동시성 모드에서는 렌더링을 중단하고 재개할 수 있기 때문입니다. 이때, 값이 바뀌면 Tearing이 발생하기 때문에 **SyncLane**으로 강제하면 중단없이 한 번에 렌더링되어 Tearing을 방지할 수 있습니다.
+
+<br />
+
+### 5. pushStoreConsistencyCheck
+
+<aside>
+
+**Concurrent Mode** 렌더링에서 외부 저장소의 일관성을 보장하기 위해 체크 포인트를 등록하기 위한 함수
+
+</aside>
+
+<br />
+
+즉, 렌더링할 때 사용한 외부 데이터 값을 기억해뒀다가, 커밋 직전에 다시 확인해서 중간에 바뀌었는지 체크하는 함수입니다.
+
+```tsx
+function pushStoreConsistencyCheck<T>(
+  fiber: Fiber,
+  getSnapshot: () => T,
+  renderedSnapshot: T,
+): void {
+  fiber.flags |= StoreConsistency;
+  **const check: StoreConsistencyCheck<T> = {
+    getSnapshot, // 최신 스토어의 값을 읽는 함수
+    value: renderedSnapshot, // 렌더링 할 때 읽는 값
+  };
+
+  // 현재 렌더링 중인 Fiber의 업데이트 큐를 가져옴**
+  let componentUpdateQueue: null | FunctionComponentUpdateQueue =
+    (currentlyRenderingFiber.updateQueue: any);
+
+  // 업데이트 큐에 check를 추가
+  if (componentUpdateQueue === null) {
+    componentUpdateQueue = createFunctionComponentUpdateQueue();
+    currentlyRenderingFiber.updateQueue = (componentUpdateQueue: any);
+    componentUpdateQueue.stores = [check];
+  } else {
+    const stores = componentUpdateQueue.stores;
+    if (stores === null) {
+      componentUpdateQueue.stores = [check];
+    } else {
+      stores.push(check);
+    }
+  }
+}
+```
+
+앞서 설명한대로, **Concurrent Rendering**에서는 **Tearing 문제가 발생**하는데요. 이 과정에서 **모든 값을 일치시켜주기 위해서 사용하는 함수**가 **pushStoreConsistencyCheck**입니다.
+
+<br />
+
+렌더링 때 **pushStoreConsistencyCheck로 사용한 값을 저장하고**, 커밋 직전에 **“현재 값과 렌더링 때의 값”이 같은지를 확인**하고 같으면 그대로 렌더링하고, **다르면 동기 모드로 다시 렌더링**을 합니다.
+
+이렇게 해서 모두 같은 값을 사용하게 되고, **Tearing이 방지**되는 것입니다.
+
+<br />
+
+커밋 직전에 값을 확인하는 코드는 [performConcurrentWorkOnRoot](https://github.com/facebook/react/blob/main/packages/react-reconciler/src/ReactFiberWorkLoop.js#L1066) 함수를 통해 확인할 수 있습니다.
+
+아래는 전체 코드를 요약한 버전입니다.
+
+```tsx
+export function performWorkOnRoot(
+  root: FiberRoot,
+  lanes: Lanes,
+  forceSync: boolean,
+): void {
+  ...
+
+  // 렌더링 모드 결정하기
+  const shouldTimeSlice =
+    (!forceSync &&
+      !includesBlockingLane(lanes) &&
+      !includesExpiredLane(root, lanes)) ||
+    checkIfRootIsPrerendering(root, lanes);
+
+	// 렌더링 실행
+  let exitStatus: RootExitStatus = shouldTimeSlice
+    ? renderRootConcurrent(root, lanes) // Concurrent
+    : renderRootSync(root, lanes, true); // Sync
+
+	// 결과 처리
+  do {
+    if (exitStatus === RootInProgress) {
+      // 렌더링 진행 중 -> 중단
+      break;
+    } else {
+      // 렌더링 완료 -> 검증 및 커밋
+
+      // **일관성 체크: 불일치를 발견하는 경우**
+      **if (
+        renderWasConcurrent &&
+        !isRenderConsistentWithExternalStores(finishedWork)
+      ) {
+        exitStatus = renderRootSync(root, lanes, false);
+        renderWasConcurrent = false;
+        continue;
+      }**
+
+      **// 커밋**
+      **finishConcurrentRender(
+        root,
+        exitStatus,
+        finishedWork,
+        lanes,
+        renderEndTime,
+      );**
+    }
+    break;
+  } while (true);
+}
+```
+
+아래에서 **finishedWork를 통해 완성된 fiber 트리를 가져**오면, **renderWasConcurrent**를 통해 **Concurrent 모드인지를 확인할** 수 있습니다. **isRenderConsistentWithExternalStores**를 통해 false를 반환받으면 **외부의 값이 바뀐 것을 확인**하고, **동기 모드로 리렌더링**을 시킵니다.
+
+```tsx
+const finishedWork = root.current.alternate; // 완성된 Fiber 트리
+
+if (
+  renderWasConcurrent && // Concurrent 모드였고
+  !isRenderConsistentWithExternalStores(finishedWork) // 불일치!
+) {
+  // 동기 모드로 재렌더링
+  exitStatus = renderRootSync(root, lanes, false);
+  renderWasConcurrent = false; // 이번엔 동기 모드
+  continue; // 다시 루프 돌면서 검증
+}
+```
+
+<br />
+
+이후 **do-while문을 통해 문제가 없을 때까지 커밋을 하지 않고 재검증을 수행**합니다.
+
+```tsx
+do {
+  // 검증 및 처리
+  // 문제 발견 시 재처리 후 continue
+
+  // 문제 없으면 커밋
+  break;
+} while (true);
+```
+
+<br />
+
+전체 흐름을 정리하면 다음과 같습니다.
+
+1\. 렌더링 완료 후 `isRenderConsistentWithExternalStores`로 일관성 체크
+
+2\. 불일치 발견 시 `renderRootSync`로 동기 모드 재렌더링 + `continue`로 재검증
+
+3\. 모든 검증 통과 시 `finishConcurrentRender`로 커밋
+
+<br />
+
+## 정리
+
+**useSyncExternalStore**는 React 외부의 상태를 안전하게 사용하기 위한 필수적인 도구입니다.
+
+<br />
+
+**그리고** useSyncExternalStore의 **핵심 메커니즘**은 다음과 같습니다.
+
+1\. **이중 변경 감지**
+
+- 구독 시점: `subscribeToStore`로 외부 상태 변경 감지
+- 구독 직후: 한 번 더 값 확인 (변경 누락 방지)
+
+<br />
+
+2\. **Tearing 방지**
+
+- 변경 감지 시: `SyncLane`으로 동기 모드 강제 전환
+- 커밋 직전: `pushStoreConsistencyCheck`로 일관성 재검증
+
+<br />
+
+3\. **안전성 보장**
+
+- `Object.is`를 통한 정확한 값 비교
+- 에러 발생 시에도 변경으로 간주
+- `do-while` 루프를 통한 완전한 검증
+
+<br />
+
+# 마치며
+
+**useSyncExternalStore**의 내부 구현을 분석하는 과정은 하나의 훅을 이해하는 것 이상의 의미가 있었습니다.
+
+처음에는 "외부 상태를 동기화한다"는 개념이 추상적으로만 느껴졌습니다. 하지만 실제 코드를 분석하면서 React가 어떻게 문제를 정의하고, 해결책을 설계했는지를 알 수 있었습니다.
+
+특히 Tearing 문제를 방지하기 위해 이중 체크를 하는 전략을 보면서 단순히 동작하는 코드가 아닌, 신뢰할 수 있는 코드를 짜려면 이렇게 해야하는구나를 간접적으로 알 수 있었습니다.
+
+<br />
+
+이 글이 **useSyncExternalStore**의 등장 배경과 동작 과정을 이해하는데 도움이 됐으면 좋겠습니다!
+
+감사합니다.
+
+---
+
+## 참조
+
+[https://react.dev/reference/react/useSyncExternalStore#usesyncexternalstore](https://react.dev/reference/react/useSyncExternalStore#usesyncexternalstore)
+
+[https://jser.dev/2023-08-02-usesyncexternalstore/](https://jser.dev/2023-08-02-usesyncexternalstore/)
