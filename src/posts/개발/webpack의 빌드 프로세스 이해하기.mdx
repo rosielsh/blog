@@ -15,7 +15,7 @@ thumbnail: /posts/개발/5/thumbnail.png
 
 <br />
 
-## **빌드 프로세스 전체 흐름**
+## 빌드 프로세스 전체 흐름
 
 먼저 전체 흐름을 보면 이해하기 쉬울 것 같아서 첨부합니다.
 
@@ -40,7 +40,7 @@ thumbnail: /posts/개발/5/thumbnail.png
 
 이제 각 단계를 상세하게 살펴보겠습니다.
 
-### **1.** npm run build 실행 시 **webpack 초기화**
+### 1. npm run build 실행 시 webpack 초기화
 
 ```jsx
 // package.json
@@ -62,7 +62,7 @@ export default (_, argv) => {
 
 <br />
 
-### **2. 환경 변수 설정 및 주입**
+### 2. 환경 변수 설정 및 주입
 
 ```jsx
 dotenv.config({ path: path.resolve(process.cwd(), `.env.${mode}`) }).parsed || {}; // webpack.config.js에서 환경 읽기
@@ -74,7 +74,7 @@ new webpack.DefinePlugin(envKeys); // 코드에 주입
 
 <br />
 
-### **3. Entry Point에서 의존성 그래프 구축 & Loader 적용**
+### 3. Entry Point에서 의존성 그래프 구축 & Loader 적용
 
 ```jsx
 entry: "./src/main.tsx";
@@ -112,7 +112,7 @@ import "./styles/global.css";
 
 <br />
 
-### **각 파일들에 적용되는 Loader는 어떤 것들이 있나요?**
+### 각 파일들에 적용되는 Loader는 어떤 것들이 있나요?
 
 추가적으로, 각 파일의 확장자 별로 처리되는 Loader는 다음과 같습니다.
 
